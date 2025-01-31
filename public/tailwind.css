@@ -1,3 +1,11 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+.success-gradient {
+  background: linear-gradient(145deg, #99c7a2 65%, #c8cc7c 100%);
+}
+
+.stunts-gradient {
+  background: linear-gradient(145deg, #ff6b6b 60%, #feca57 100%);
+}

@@ -3,8 +3,9 @@ use phosphor_leptos::{
     Icon, IconWeight, IconWeightData, ARROWS_CLOCKWISE, ARROWS_OUT_CARDINAL, ARROW_FAT_LINES_RIGHT,
     ARROW_LEFT, ATOM, BONE, BOOK_OPEN, BRAIN, BROADCAST, CARET_DOWN, CARET_RIGHT, CIRCLES_THREE,
     COPY, CUBE_FOCUS, DOTS_THREE_OUTLINE_VERTICAL, DOT_OUTLINE, FADERS, FAST_FORWARD, FOLDER_PLUS,
-    GEAR, HORSE, IMAGE, MAP_TRIFOLD, MINUS, OCTAGON, PAINT_BRUSH, PANORAMA, PLUS, POLYGON, RESIZE,
-    SHAPES, SPEEDOMETER, SPHERE, SQUARE, TEXT_T, TRASH, TRIANGLE, VECTOR_THREE, VIDEO, WINDMILL, X,
+    GEAR, HORSE, IMAGE, LIGHTNING, MAGIC_WAND, MAP_TRIFOLD, MINUS, OCTAGON, PAINT_BRUSH, PANORAMA,
+    PLUS, POLYGON, RESIZE, SHAPES, SPEEDOMETER, SPHERE, SQUARE, TEXT_T, TRASH, TRIANGLE,
+    VECTOR_THREE, VIDEO, WINDMILL, X,
 };
 
 use crate::helpers::projects::ProjectInfo;
@@ -131,6 +132,12 @@ pub fn CreateIcon(icon: String, size: String) -> impl IntoView {
         }
         "x" => {
             view! { <Icon icon=X weight=IconWeight::Light size=size /> }
+        }
+        "wand" => {
+            view! { <Icon icon=MAGIC_WAND weight=IconWeight::Light size=size /> }
+        }
+        "lightning" => {
+            view! { <Icon icon=LIGHTNING weight=IconWeight::Light size=size /> }
         }
         _ => {
             view! { <Icon icon=HORSE weight=IconWeight::Light size=size /> }
