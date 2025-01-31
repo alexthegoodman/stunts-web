@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use chrono::{DateTime, Local};
 use codee::string::JsonSerdeCodec;
 use leptos::prelude::*;
@@ -27,19 +29,22 @@ pub fn ProjectsList() -> impl IntoView {
                     {move || {
                         projects
                             .get()
-                            .as_deref()
-                            .expect("Couldn't deref projects")
-                            .into_iter()
-                            .map(|project| {
-                                view! {
-                                    <ProjectItem
-                                        // project_info=project.clone()
-                                        project_label=project.project_name.clone()
-                                        icon="folder-plus".to_string()
-                                    />
-                                }
+                            .map(|project_items| {
+                                let project_items = project_items.deref();
+                                project_items
+                                    .iter()
+                                    .map(|project| {
+
+                                        view! {
+                                            <ProjectItem
+                                                // project_info=project.clone()
+                                                project_label=project.project_name.clone()
+                                                icon="folder-plus".to_string()
+                                            />
+                                        }
+                                    })
+                                    .collect_view()
                             })
-                            .collect_view()
                     }}
                 </div>
             </Suspense>

@@ -7,7 +7,7 @@ use crate::helpers::projects::{ProjectInfo, ProjectsResponse};
 
 pub async fn get_projects(token: String) -> Vec<ProjectInfo> {
     // Send the POST request using `gloo-net`
-    let response = Request::post("http://localhost:3000/api/projects/all")
+    let response = Request::get("http://localhost:3000/api/projects/all")
         .header("Content-Type", "application/json")
         .header("Authorization", &format!("Bearer {}", token))
         // .json(&login_request)

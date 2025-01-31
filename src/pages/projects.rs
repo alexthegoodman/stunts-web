@@ -24,6 +24,7 @@ pub fn Projects() -> impl IntoView {
                 </ul>
             }
         }>
+            <h1>Projects</h1>
             <ProjectsList />
         </ErrorBoundary>
     }
