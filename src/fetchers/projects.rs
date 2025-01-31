@@ -1,24 +1,30 @@
 use chrono::{DateTime, Local};
+use gloo_net::http::Request;
 use leptos::{prelude::ServerFnError, *};
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 use crate::helpers::projects::{ProjectInfo, ProjectsResponse};
 
-// Resource to manage projects data
-// #[server(GetProjects)]
-pub async fn get_projects() -> Vec<ProjectInfo> {
-    let client = Client::new();
-    
-    // Replace with your actual API endpoint
-    let projects_response = client
-        .get("http://localhost:3000/api/projects/all")
+pub async fn get_projects(token: String) -> Vec<ProjectInfo> {
+    // Send the POST request using `gloo-net`
+    let response = Request::post("http://localhost:3000/api/projects/all")
+        .header("Content-Type", "application/json")
+        .header("Authorization", &format!("Bearer {}", token))
+        // .json(&login_request)
+        // .expect("Failed to serialize login request")
         .send()
-        .await.expect("Couldn't make projects call")
-        .json::<ProjectsResponse>()
-        .await.expect("Couldn't make projects call");
+        .await
+        .expect("Failed to send login request");
 
-    // Transform the API response into ProjectInfo objects
+    // Check if the response is successful
+    if response.ok() {
+        // Parse the JSON response
+        let projects_response: ProjectsResponse = response
+            .json()
+            .await
+            .expect("Failed to parse login response");
+
+        // Transform the API response into ProjectInfo objects
     let mut projects: Vec<ProjectInfo> = projects_response
         .projects
         .into_iter()
@@ -35,5 +41,9 @@ pub async fn get_projects() -> Vec<ProjectInfo> {
     projects.sort_by(|a, b| b.modified.cmp(&a.modified));
 
     projects
+    } else {
+        // Handle the error case
+        panic!("Login failed: {}", response.status_text());
+    }
 }
 

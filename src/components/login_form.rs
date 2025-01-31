@@ -1,8 +1,9 @@
-use leptos::{prelude::*};
+use codee::string::{FromToStringCodec, JsonSerdeCodec};
+use leptos::prelude::*;
 use leptos_router::hooks::use_navigate;
 use leptos_use::storage::use_local_storage;
 use serde::{Deserialize, Serialize};
-use codee::string::{JsonSerdeCodec, FromToStringCodec};
+use wasm_bindgen_futures::spawn_local;
 
 use crate::{fetchers::users::login_user, helpers::users::AuthToken};
 
@@ -15,32 +16,18 @@ pub struct LoginCredentials {
 #[component]
 pub fn LoginForm() -> impl IntoView {
     let navigate = use_navigate();
-    let (auth_state, set_auth_state, _) = use_local_storage::<AuthToken, JsonSerdeCodec>("auth-token");
+    let (auth_state, set_auth_state, _) =
+        use_local_storage::<AuthToken, JsonSerdeCodec>("auth-token");
 
     let (email, set_email) = signal(String::new());
     let (password, set_password) = signal(String::new());
     let (error, set_error) = signal(Option::<String>::None);
     let (loading, set_loading) = signal(false);
 
-    let handle_submit = Action::new(move |credentials: &LoginCredentials| {
-        let credentials = credentials.clone();
+    let on_submit = {
         let navigate = navigate.clone();
 
-        async move {
-            let response = login_user(credentials.email, credentials.password).await;
-            // Ok(response) => {
-
-            set_auth_state.set(response.jwtData);
-                
-            navigate("/projects", Default::default());
-            
-            //     Ok(())
-            // }
-            // Err(e) => Err(e.to_string())
-        }
-    });
-
-    let on_submit = move |ev: leptos::web_sys::SubmitEvent| {
+        move |ev: leptos::web_sys::SubmitEvent| {
         ev.prevent_default();
         set_loading.set(true);
         set_error.set(None);
@@ -50,18 +37,20 @@ pub fn LoginForm() -> impl IntoView {
             password: password.get(),
         };
 
-        handle_submit.dispatch(credentials);
-    };
+        spawn_local({
+            let navigate = navigate.clone();
 
-    // Handle loading and error states
-    Effect::new(move |_| {
-        if let Some(result) = handle_submit.value().get() {
-            set_loading.set(false);
-            // if let Err(e) = result {
-            //     set_error.set(Some(e));
-            // }
-        }
-    });
+            async move {
+                let response = login_user(credentials.email, credentials.password).await;
+
+                set_loading.set(false);
+
+                set_auth_state.set(response.jwtData);
+
+                navigate("/projects", Default::default());
+            }
+        });
+    }};
 
     view! {
         <div class="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
@@ -82,7 +71,7 @@ pub fn LoginForm() -> impl IntoView {
                                 name="email"
                                 type="email"
                                 required
-                                class="appearance-none rounded-md relative block w-full px-3 py-2 border 
+                                class="appearance-none rounded-md relative block w-full px-3 py-2 border
                                 border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none 
                                 focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
                                 placeholder="Email address"
@@ -101,7 +90,7 @@ pub fn LoginForm() -> impl IntoView {
                                 name="password"
                                 type="password"
                                 required
-                                class="appearance-none rounded-md relative block w-full px-3 py-2 border 
+                                class="appearance-none rounded-md relative block w-full px-3 py-2 border
                                 border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none 
                                 focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
                                 placeholder="Password"
@@ -121,7 +110,7 @@ pub fn LoginForm() -> impl IntoView {
                     <div>
                         <button
                             type="submit"
-                            class="group relative w-full flex justify-center py-2 px-4 border border-transparent 
+                            class="group relative w-full flex justify-center py-2 px-4 border border-transparent
                             text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 
                             focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500
                             disabled:opacity-50 disabled:cursor-not-allowed"

@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use chrono::{DateTime, Local};
 use leptos::prelude::*;
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use gloo_net::http::Request;
 
 use crate::helpers::users::{LoginRequest, LoginResponse, SubscriptionDetails};
 
@@ -36,47 +36,53 @@ use crate::helpers::users::{LoginRequest, LoginResponse, SubscriptionDetails};
 //     Ok(())
 // }
 
-pub async fn login_user(
-    email: String,
-    password: String,
-) -> LoginResponse {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build().expect("Couldn't build request");
+pub async fn login_user(email: String, password: String) -> LoginResponse {
+    // Create the JSON body for the request
+    let login_request = LoginRequest { email, password };
 
-    let response = client
-        .post("http://localhost:3000/api/auth/login")
-        .json(&LoginRequest { email, password })
+    // Send the POST request using `gloo-net`
+    let response = Request::post("http://localhost:3000/api/auth/login")
+        .header("Content-Type", "application/json")
+        .json(&login_request)
+        .expect("Failed to serialize login request")
         .send()
-        .await.expect("Couldn't login user");
+        .await
+        .expect("Failed to send login request");
 
-    // if response.status().is_success() {
-        let login_response = response.json::<LoginResponse>().await.expect("Couldn't login user");
+    // Check if the response is successful
+    if response.ok() {
+        // Parse the JSON response
+        let login_response: LoginResponse = response
+            .json()
+            .await
+            .expect("Failed to parse login response");
         login_response
-    // } 
-    // else {
-    //     let error_text = response.text().await?;
-    //     Err(error_text.into())
-    // }
+    } else {
+        // Handle the error case
+        panic!("Login failed: {}", response.status_text());
+    }
 }
 
-// Function to fetch subscription details
-pub async fn fetch_subscription_details(
-    token: &str,
-) -> SubscriptionDetails {
-    let client = Client::new();
-
-    let response = client
-        .get("http://localhost:3000/api/subscription/details")
-        .header("Authorization", format!("Bearer {}", token))
+pub async fn fetch_subscription_details(token: &str,) -> SubscriptionDetails {
+    // Send the POST request using `gloo-net`
+    let response = Request::post("http://localhost:3000/api/subscription/details")
+        .header("Content-Type", "application/json")
+        .header("Authorization", &format!("Bearer {}", token))
+        // .expect("Failed to serialize details request")
         .send()
-        .await.expect("Couldn't fetch subscription details");
+        .await
+        .expect("Failed to send details request");
 
-    // if response.status().is_success() {
-        let details = response.json::<SubscriptionDetails>().await.expect("Couldn't fetch subscription details");
+    // Check if the response is successful
+    if response.ok() {
+        // Parse the JSON response
+        let details: SubscriptionDetails = response
+            .json()
+            .await
+            .expect("Failed to parse details response");
         details
-    // } 
-    // else {
-    //     Err(response.text().await?.into())
-    // }
+    } else {
+        // Handle the error case
+        panic!("Details failed: {}", response.status_text());
+    }
 }
