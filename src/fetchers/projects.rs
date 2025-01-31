@@ -3,15 +3,13 @@ use gloo_net::http::Request;
 use leptos::{prelude::ServerFnError, *};
 use serde::{Deserialize, Serialize};
 
-use crate::helpers::projects::{ProjectInfo, ProjectsResponse};
+use crate::helpers::projects::{CreateProjectRequest, CreateProjectResponse, ProjectInfo, ProjectsResponse};
 
 pub async fn get_projects(token: String) -> Vec<ProjectInfo> {
     // Send the POST request using `gloo-net`
     let response = Request::get("http://localhost:3000/api/projects/all")
         .header("Content-Type", "application/json")
         .header("Authorization", &format!("Bearer {}", token))
-        // .json(&login_request)
-        // .expect("Failed to serialize login request")
         .send()
         .await
         .expect("Failed to send login request");
@@ -29,9 +27,9 @@ pub async fn get_projects(token: String) -> Vec<ProjectInfo> {
         .projects
         .into_iter()
         .map(|data| ProjectInfo {
-            project_id: data.project_id,
-            project_name: data.project_name,
-            dir_name: "".to_string(),
+            project_id: data.id,
+            project_name: data.name,
+            // dir_name: "".to_string(),
             created: DateTime::from(data.created_at.expect("Couldn't get datetime")),
             modified: DateTime::from(data.updated_at.expect("Couldn't get datetime")),
         })
@@ -44,6 +42,33 @@ pub async fn get_projects(token: String) -> Vec<ProjectInfo> {
     } else {
         // Handle the error case
         panic!("Login failed: {}", response.status_text());
+    }
+}
+
+pub async fn create_project(token: String, name: String) -> CreateProjectResponse {
+    let create_request = CreateProjectRequest { name };
+
+    let response = Request::post("http://localhost:3000/api/projects/create")
+        .header("Content-Type", "application/json")
+        .header("Authorization", &format!("Bearer {}", token))
+        .json(&create_request)
+        .expect("Failed to serialize project request")
+        .send()
+        .await
+        .expect("Failed to send project request");
+
+    // Check if the response is successful
+    if response.ok() {
+        // Parse the JSON response
+        let project_response: CreateProjectResponse = response
+            .json()
+            .await
+            .expect("Failed to parse project response");
+
+        project_response
+    } else {
+        // Handle the error case
+        panic!("Project failed: {}", response.status_text());
     }
 }
 
