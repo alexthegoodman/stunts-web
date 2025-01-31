@@ -1,6 +1,5 @@
 use crate::components::project_browser::ProjectItem;
 use leptos::prelude::*;
-use phosphor_leptos::{Icon, IconWeight, CUBE, HEART, HORSE};
 
 /// Default Home Page
 #[component]
@@ -31,11 +30,6 @@ pub fn Home() -> impl IntoView {
                         project_label="Generate Motion".to_string()
                         icon="brush".to_string()
                     />
-                </div>
-                <div class="icons">
-                    <Icon icon=HORSE />
-                    <Icon icon=HEART color="#AE2983" weight=IconWeight::Fill size="32px" />
-                    <Icon icon=CUBE color="teal" weight=IconWeight::Duotone />
                 </div>
             </div>
         </ErrorBoundary>
