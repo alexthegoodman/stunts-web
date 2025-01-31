@@ -12,7 +12,7 @@ pub async fn get_projects() -> Vec<ProjectInfo> {
     
     // Replace with your actual API endpoint
     let projects_response = client
-        .get("http://localhost:3000/api/projects")
+        .get("http://localhost:3000/api/projects/all")
         .send()
         .await.expect("Couldn't make projects call")
         .json::<ProjectsResponse>()
@@ -26,9 +26,8 @@ pub async fn get_projects() -> Vec<ProjectInfo> {
             project_id: data.project_id,
             project_name: data.project_name,
             dir_name: "".to_string(),
-            // Assuming the API now provides these timestamps
-            created: Local::now(), // Replace with actual created from API
-            modified: Local::now(), // Replace with actual modified from API
+            created: DateTime::from(data.created_at.expect("Couldn't get datetime")),
+            modified: DateTime::from(data.updated_at.expect("Couldn't get datetime")),
         })
         .collect();
 

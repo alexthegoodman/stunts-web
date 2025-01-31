@@ -1,4 +1,5 @@
 use leptos::{prelude::*};
+use leptos_router::hooks::use_navigate;
 use leptos_use::storage::use_local_storage;
 use serde::{Deserialize, Serialize};
 use codee::string::{JsonSerdeCodec, FromToStringCodec};
@@ -13,6 +14,7 @@ pub struct LoginCredentials {
 
 #[component]
 pub fn LoginForm() -> impl IntoView {
+    let navigate = use_navigate();
     let (auth_state, set_auth_state, _) = use_local_storage::<AuthToken, JsonSerdeCodec>("auth-token");
 
     let (email, set_email) = signal(String::new());
@@ -22,13 +24,16 @@ pub fn LoginForm() -> impl IntoView {
 
     let handle_submit = Action::new(move |credentials: &LoginCredentials| {
         let credentials = credentials.clone();
+        let navigate = navigate.clone();
+
         async move {
             let response = login_user(credentials.email, credentials.password).await;
             // Ok(response) => {
 
             set_auth_state.set(response.jwtData);
                 
-            // navigate("/projects", NavigateOptions::default());
+            navigate("/projects", Default::default());
+            
             //     Ok(())
             // }
             // Err(e) => Err(e.to_string())

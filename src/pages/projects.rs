@@ -1,10 +1,10 @@
-use crate::components::login_form::LoginForm;
 use crate::components::project_browser::ProjectItem;
+use crate::components::project_list::ProjectsList;
 use leptos::prelude::*;
 
 /// Default Home Page
 #[component]
-pub fn Home() -> impl IntoView {
+pub fn Projects() -> impl IntoView {
     view! {
         <ErrorBoundary fallback=|errors| {
             view! {
@@ -24,7 +24,7 @@ pub fn Home() -> impl IntoView {
                 </ul>
             }
         }>
-            <LoginForm />
+            <ProjectsList />
         </ErrorBoundary>
     }
 }
