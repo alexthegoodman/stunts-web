@@ -3,7 +3,7 @@ use gloo_net::http::Request;
 use leptos::{prelude::ServerFnError, *};
 use serde::{Deserialize, Serialize};
 
-use crate::helpers::projects::{CreateProjectRequest, CreateProjectResponse, ProjectInfo, ProjectsResponse};
+use crate::helpers::{projects::{CreateProjectRequest, CreateProjectResponse, ProjectInfo, ProjectsResponse}, utilities::SavedState};
 
 pub async fn get_projects(token: String) -> Vec<ProjectInfo> {
     // Send the POST request using `gloo-net`
@@ -45,8 +45,8 @@ pub async fn get_projects(token: String) -> Vec<ProjectInfo> {
     }
 }
 
-pub async fn create_project(token: String, name: String) -> CreateProjectResponse {
-    let create_request = CreateProjectRequest { name };
+pub async fn create_project(token: String, name: String, empty_file_data: SavedState) -> CreateProjectResponse {
+    let create_request = CreateProjectRequest { name, empty_file_data };
 
     let response = Request::post("http://localhost:3000/api/projects/create")
         .header("Content-Type", "application/json")

@@ -3,9 +3,10 @@ use leptos::prelude::*;
 use leptos_router::hooks::use_navigate;
 use leptos_use::storage::use_local_storage;
 use serde::{Deserialize, Serialize};
+use stunts_engine::timelines::SavedTimelineStateConfig;
 use wasm_bindgen_futures::spawn_local;
 
-use crate::{fetchers::users::login_user, helpers::users::AuthToken};
+use crate::{fetchers::{projects::create_project, users::login_user}, helpers::{users::AuthToken, utilities::SavedState}};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct LoginCredentials {
@@ -31,24 +32,28 @@ pub fn ProjectForm() -> impl IntoView {
             set_loading.set(true);
             set_error.set(None);
 
-            // let credentials = LoginCredentials {
-            //     email: email.get(),
-            //     password: password.get(),
-            // };
+            let auth_state = auth_state.get();
+            let project_name = project_name.get();
 
-            // spawn_local({
-            //     let navigate = navigate.clone();
+            spawn_local({
+                let navigate = navigate.clone();
 
-            //     async move {
-            //         let response = login_user(credentials.email, credentials.password).await;
+                async move {
+                    let saved_state = SavedState {
+                        // id: project_id,
+                        sequences: Vec::new(),
+                        timeline_state: SavedTimelineStateConfig {
+                            timeline_sequences: Vec::new(),
+                        },
+                    };
 
-            //         set_loading.set(false);
+                    let response = create_project(auth_state.token, project_name, saved_state).await;
 
-            //         set_auth_state.set(response.jwtData);
+                    set_loading.set(false);
 
-            //         navigate("/projects", Default::default());
-            //     }
-            // });
+                    navigate("/projects", Default::default());
+                }
+            });
         }
     };
 
@@ -74,7 +79,7 @@ pub fn ProjectForm() -> impl IntoView {
                                 class="appearance-none rounded-md relative block w-full px-3 py-2 border
                                 border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none 
                                 focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-                                placeholder="Your next great project"
+                                placeholder="Project name"
                                 on:input=move |ev| {
                                     set_project_name.set(event_target_value(&ev));
                                 }

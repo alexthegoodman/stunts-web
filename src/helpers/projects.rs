@@ -1,6 +1,8 @@
 use chrono::serde::ts_seconds_option;
-use chrono::{DateTime, Local, Utc};
+use chrono::{DateTime, FixedOffset, Local, Utc};
 use serde::{Deserialize, Serialize};
+
+use super::utilities::SavedState;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct ProjectInfo {
@@ -16,10 +18,12 @@ pub struct ProjectInfo {
 pub struct ProjectData {
     pub id: String,
     pub name: String,
-    #[serde(with = "ts_seconds_option")]
-    pub updated_at: Option<DateTime<Utc>>,
-    #[serde(with = "ts_seconds_option")]
-    pub created_at: Option<DateTime<Utc>>,
+    // #[serde(with = "ts_seconds_option")]
+    // pub updated_at: Option<DateTime<Utc>>,
+    // #[serde(with = "ts_seconds_option")]
+    // pub created_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<DateTime<FixedOffset>>,
+    pub created_at: Option<DateTime<FixedOffset>>,
 }
 
 // API response type
@@ -32,7 +36,7 @@ pub struct ProjectsResponse {
 #[serde(rename_all = "camelCase")]
 pub struct CreateProjectRequest {
     pub name: String,
-    // TODO: pub empty_file_data:
+    pub empty_file_data: SavedState,
 }
 
 #[derive(Deserialize, Clone)]
