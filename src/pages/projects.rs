@@ -1,4 +1,3 @@
-use crate::components::project_browser::ProjectItem;
 use crate::components::project_list::ProjectsList;
 use leptos::prelude::*;
 use leptos_router::hooks::use_navigate;

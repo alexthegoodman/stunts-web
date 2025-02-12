@@ -8,7 +8,7 @@ use leptos::{server::LocalResource, *};
 use leptos_use::storage::use_local_storage;
 use serde::{Deserialize, Serialize};
 
-use crate::components::project_browser::ProjectItem;
+use crate::components::items::ProjectItem;
 use crate::fetchers::projects::get_projects;
 use crate::helpers::projects::ProjectInfo;
 use crate::helpers::users::AuthToken;
@@ -37,7 +37,7 @@ pub fn ProjectsList() -> impl IntoView {
 
                                         view! {
                                             <ProjectItem
-                                                // project_info=project.clone()
+                                                project_id=project.project_id.clone()
                                                 project_label=project.project_name.clone()
                                                 icon="folder-plus".to_string()
                                             />

@@ -1,6 +1,5 @@
 use crate::components::icon::CreateIcon;
 use crate::components::login_form::LoginForm;
-use crate::components::project_browser::ProjectItem;
 use leptos::prelude::*;
 
 /// Default Home Page

@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 use leptos_meta::*;
 use leptos_router::{components::*, path};
-use pages::{create_project::CreateProject, projects::Projects};
+use pages::{create_project::CreateProject, project::Project, projects::Projects};
 
 // Modules
 mod components;
@@ -31,6 +31,7 @@ pub fn App() -> impl IntoView {
                 <Route path=path!("/") view=Home />
                 <Route path=path!("/projects") view=Projects />
                 <Route path=path!("/create-project") view=CreateProject />
+                <Route path=path!("/project/:project_id") view=Project />
             </Routes>
         </Router>
     }
