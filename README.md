@@ -13,7 +13,7 @@ rustup target add wasm32-unknown-unknown
 ## Developing with Leptos
 
 ```sh
-trunk serve --port 3000 --open
+trunk serve --port 3001
 ```
 
 will open your app in your default browser at `http://localhost:3000`.

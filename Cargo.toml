@@ -23,6 +23,7 @@ chrono = { version = "0.4.38", features = ["serde"] }
 leptos-use = { version = "0.15.5", features = ["storage"] }
 codee = { version = "0.2.0", features = ["json_serde"] }
 wasm-bindgen-futures = "0.4"
+stunts-engine = { path = "D:/projects/common/stunts-engine", version = "0.1.0" }
 
 # utils
 # strum = { version = "0.25", features = ["derive", "strum_macros"] }
