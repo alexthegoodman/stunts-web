@@ -1,6 +1,15 @@
-use leptos::prelude::*;
+use codee::string::JsonSerdeCodec;
+use leptos::{logging, prelude::*};
+use leptos_use::storage::use_local_storage;
+use reactive_stores::Store;
+use stunts_engine::animations::{BackgroundFill, Sequence};
+use uuid::Uuid;
+use wasm_bindgen_futures::spawn_local;
 
 use crate::components::items::NavButton;
+use crate::fetchers::projects::{get_single_project, update_sequences};
+use crate::helpers::users::AuthToken;
+use crate::helpers::utilities::{SavedState, SavedStateStoreFields};
 
 use leptos::Params;
 use leptos_router::hooks::{use_navigate, use_params, use_query};
@@ -19,6 +28,15 @@ enum Sections {
 
 #[component]
 pub fn Project() -> impl IntoView {
+    let (auth_state, set_auth_state, _) =
+        use_local_storage::<AuthToken, JsonSerdeCodec>("auth-token");
+
+    let state = expect_context::<Store<SavedState>>();
+
+    // this gives us reactive access to the `sequences` field only
+    let sequences = state.sequences();
+    let timeline_state = state.timeline_state();
+
     let params = use_params::<ProjectParams>();
 
     let project_id = move || {
@@ -37,6 +55,23 @@ pub fn Project() -> impl IntoView {
     let (error, set_error) = signal(Option::<String>::None);
     let (loading, set_loading) = signal(false);
 
+    Effect::new(move |_| {
+        set_loading.set(true);
+
+        let auth_state = auth_state.get_untracked();
+
+        spawn_local({
+            async move {
+                let response = get_single_project(auth_state.token, project_id()).await;
+
+                sequences.set(response.project.file_data.sequences);
+                timeline_state.set(response.project.file_data.timeline_state);
+
+                set_loading.set(false);
+            }
+        });
+    });      
+
     let on_create_sequence = {
         let navigate = navigate.clone();
 
@@ -45,11 +80,34 @@ pub fn Project() -> impl IntoView {
             set_loading.set(true);
             set_error.set(None);
 
-            // let destination = destination.clone();
+            let mut new_sequences = sequences.get();
 
-            // navigate(&destination, Default::default());
+            new_sequences.push(Sequence {
+                id: Uuid::new_v4().to_string(),
+                name: "New Sequence".to_string(),
+                background_fill: Some(BackgroundFill::Color([200, 200, 200, 255])),
+                duration_ms: 20000,
+                active_polygons: Vec::new(),
+                polygon_motion_paths: Vec::new(),
+                active_text_items: Vec::new(),
+                active_image_items: Vec::new(),
+                active_video_items: Vec::new(),
+            });
 
-            // set_loading.set(false);
+            sequences.set(new_sequences.clone());
+
+            let auth_state = auth_state.get();
+
+            spawn_local({
+                // let navigate = navigate.clone();
+                let new_sequences = new_sequences.clone();
+    
+                async move {
+                    let response = update_sequences(auth_state.token, project_id(), new_sequences).await;
+    
+                    set_loading.set(false);
+                }
+            });
         }
     };
 
@@ -94,13 +152,44 @@ pub fn Project() -> impl IntoView {
                                         <h5>"Sequences"</h5>
                                         <button
                                             class="text-xs rounded-md text-white stunts-gradient px-2 py-1"
+                                            disabled=loading
                                             on:click=on_create_sequence
                                         >
                                             "New Sequence"
                                         </button>
                                     </div>
                                     // Sequence List
-                                    <div class="flex flex-col w-full"></div>
+                                    <div class="flex flex-col w-full mt-2">
+                                        <For
+                                            each=move || sequences.get()
+                                            key=|sequence| sequence.id.clone()
+                                            children=move |sequence: Sequence| {
+                                                view! {
+                                                    <div class="flex flex-row">
+                                                        <button
+                                                            class="text-xs w-full text-left p-2 rounded hover:bg-gray-200
+                                                            hover:cursor-pointer active:bg-[#edda4] transition-colors"
+                                                            disabled=loading
+                                                        >
+                                                            "Open "
+                                                            {move || sequence.name.clone()}
+                                                        </button>
+                                                        // <button class="text-xs w-full text-left p-2 rounded hover:bg-gray-200
+                                                        // hover:cursor-pointer active:bg-[#edda4] transition-colors">
+                                                        // "Duplicate"
+                                                        // </button>
+                                                        <button
+                                                            class="text-xs w-full text-left p-2 rounded hover:bg-gray-200
+                                                            hover:cursor-pointer active:bg-[#edda4] transition-colors"
+                                                            disabled=loading
+                                                        >
+                                                            "Add to Timeline"
+                                                        </button>
+                                                    </div>
+                                                }
+                                            }
+                                        />
+                                    </div>
                                 </div>
                             }
                                 .into_any()

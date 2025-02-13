@@ -1,7 +1,8 @@
+use reactive_stores::Store;
 use serde::{Deserialize, Serialize};
 use stunts_engine::{animations::Sequence, timelines::SavedTimelineStateConfig};
 
-#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug)]
+#[derive(Store, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug)]
 pub struct SavedState {
     // pub id: String,
     // pub name: String,

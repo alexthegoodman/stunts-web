@@ -1,7 +1,10 @@
+use helpers::utilities::SavedState;
 use leptos::prelude::*;
 use leptos_meta::*;
 use leptos_router::{components::*, path};
 use pages::{create_project::CreateProject, project::Project, projects::Projects};
+use reactive_stores::Store;
+use stunts_engine::timelines::SavedTimelineStateConfig;
 
 // Modules
 mod components;
@@ -17,6 +20,13 @@ use crate::pages::home::Home;
 pub fn App() -> impl IntoView {
     // Provides context that manages stylesheets, titles, meta tags, etc.
     provide_meta_context();
+
+    provide_context(Store::new(SavedState {
+        sequences: Vec::new(),
+        timeline_state: SavedTimelineStateConfig {
+            timeline_sequences: Vec::new(),
+        },
+    }));
 
     view! {
         <Html attr:lang="en" attr:dir="ltr" attr:data-theme="light" />

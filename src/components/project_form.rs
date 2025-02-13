@@ -40,7 +40,6 @@ pub fn ProjectForm() -> impl IntoView {
 
                 async move {
                     let saved_state = SavedState {
-                        // id: project_id,
                         sequences: Vec::new(),
                         timeline_state: SavedTimelineStateConfig {
                             timeline_sequences: Vec::new(),

@@ -4,8 +4,6 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Alex Goodman <alexthegoodman@gmail.com>"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 leptos = { version = "0.7", features = ["csr"] }
 leptos_meta = { version = "0.7" }
@@ -24,6 +22,8 @@ leptos-use = { version = "0.15.5", features = ["storage"] }
 codee = { version = "0.2.0", features = ["json_serde"] }
 wasm-bindgen-futures = "0.4"
 stunts-engine = { path = "D:/projects/common/stunts-engine", version = "0.1.0" }
+reactive_stores = "0.1.7"
+uuid = { version = "1.13.1", features = ["v4", "js"] }
 
 # utils
 # strum = { version = "0.25", features = ["derive", "strum_macros"] }
@@ -41,4 +41,3 @@ opt-level = 'z'
 lto = true
 codegen-units = 1
 panic = "abort"
-

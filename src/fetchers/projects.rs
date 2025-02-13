@@ -2,8 +2,38 @@ use chrono::{DateTime, Local};
 use gloo_net::http::Request;
 use leptos::{prelude::ServerFnError, *};
 use serde::{Deserialize, Serialize};
+use stunts_engine::{animations::Sequence, timelines::SavedTimelineStateConfig};
 
-use crate::helpers::{projects::{CreateProjectRequest, CreateProjectResponse, ProjectInfo, ProjectsResponse}, utilities::SavedState};
+use crate::helpers::{projects::{CreateProjectRequest, CreateProjectResponse, ProjectInfo, ProjectsResponse, SingleProjectRequest, SingleProjectResponse, UpdateSequencesRequest, UpdateSequencesResponse, UpdateTimelineRequest, UpdateTimelineResponse}, utilities::SavedState};
+
+pub async fn get_single_project(token: String, project_id: String) -> SingleProjectResponse {
+    // let create_request = SingleProjectRequest { project_id };
+
+    // Send the POST request using `gloo-net`
+    let response = Request::get("http://localhost:3000/api/projects/single")
+        .header("Content-Type", "application/json")
+        .header("Authorization", &format!("Bearer {}", token))
+        // .json(&create_request)
+        // .expect("Failed to serialize project request")
+        .query([("projectId", project_id)])
+        .send()
+        .await
+        .expect("Failed to send login request");
+
+    // Check if the response is successful
+    if response.ok() {
+        // Parse the JSON response
+        let project: SingleProjectResponse = response
+            .json()
+            .await
+            .expect("Failed to parse login response");
+
+            project
+    } else {
+        // Handle the error case
+        panic!("Project failed: {}", response.status_text());
+    }
+}
 
 pub async fn get_projects(token: String) -> Vec<ProjectInfo> {
     // Send the POST request using `gloo-net`
@@ -71,4 +101,59 @@ pub async fn create_project(token: String, name: String, empty_file_data: SavedS
         panic!("Project failed: {}", response.status_text());
     }
 }
+
+pub async fn update_sequences(token: String, project_id: String, sequences: Vec<Sequence>) -> UpdateSequencesResponse {
+    let create_request = UpdateSequencesRequest { project_id, sequences };
+
+    let response = Request::post("http://localhost:3000/api/projects/update-sequences")
+        .header("Content-Type", "application/json")
+        .header("Authorization", &format!("Bearer {}", token))
+        .json(&create_request)
+        .expect("Failed to serialize project request")
+        .send()
+        .await
+        .expect("Failed to send project request");
+
+    // Check if the response is successful
+    if response.ok() {
+        // Parse the JSON response
+        let project_response: UpdateSequencesResponse = response
+            .json()
+            .await
+            .expect("Failed to parse project response");
+
+        project_response
+    } else {
+        // Handle the error case
+        panic!("Project failed: {}", response.status_text());
+    }
+}
+
+pub async fn update_timeline(token: String, project_id: String, timeline_state: SavedTimelineStateConfig) -> UpdateTimelineResponse {
+    let create_request = UpdateTimelineRequest { project_id, timeline_state };
+
+    let response = Request::post("http://localhost:3000/api/projects/update-timeline")
+        .header("Content-Type", "application/json")
+        .header("Authorization", &format!("Bearer {}", token))
+        .json(&create_request)
+        .expect("Failed to serialize project request")
+        .send()
+        .await
+        .expect("Failed to send project request");
+
+    // Check if the response is successful
+    if response.ok() {
+        // Parse the JSON response
+        let project_response: UpdateTimelineResponse = response
+            .json()
+            .await
+            .expect("Failed to parse project response");
+
+        project_response
+    } else {
+        // Handle the error case
+        panic!("Project failed: {}", response.status_text());
+    }
+}
+
 
