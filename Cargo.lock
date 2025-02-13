@@ -6057,6 +6057,7 @@ dependencies = [
 name = "stunts-web"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
  "chrono",
  "codee",
  "console_error_panic_hook",
@@ -6080,6 +6081,8 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "web-sys",
+ "wgpu",
+ "winit",
 ]
 
 [[package]]
@@ -7798,6 +7801,7 @@ dependencies = [
  "once_cell",
  "orbclient",
  "percent-encoding",
+ "raw-window-handle 0.5.2",
  "raw-window-handle 0.6.2",
  "redox_syscall 0.3.5",
  "rustix",

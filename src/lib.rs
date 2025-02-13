@@ -7,6 +7,7 @@ use reactive_stores::Store;
 use stunts_engine::timelines::SavedTimelineStateConfig;
 
 // Modules
+mod canvas_renderer;
 mod components;
 mod fetchers;
 mod helpers;

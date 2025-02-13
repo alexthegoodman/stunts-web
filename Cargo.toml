@@ -25,17 +25,25 @@ stunts-engine = { path = "D:/projects/common/stunts-engine", version = "0.1.0" }
 reactive_stores = "0.1.7"
 uuid = { version = "1.13.1", features = ["v4", "js"] }
 palette = "0.7.6"
+wgpu = "22.1.0"
+winit = { version = "0.29.15", features = ["rwh_05"] }
+bytemuck = "1.15.0"
 
-# utils
-# strum = { version = "0.25", features = ["derive", "strum_macros"] }
-# strum_macros = "0.25"
-
+[dependencies.web-sys]
+version = "0.3"
+features = [
+    "Document",
+    "Window",
+    "Element",
+    "DomRect",
+    "HtmlCanvasElement",
+    "HtmlSelectElement",
+    "Gpu",
+]
 
 [dev-dependencies]
 wasm-bindgen = "0.2"
 wasm-bindgen-test = "0.3"
-web-sys = { version = "0.3", features = ["Document", "Window"] }
-
 
 [profile.release]
 opt-level = 'z'
