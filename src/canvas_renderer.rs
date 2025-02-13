@@ -1,65 +1,29 @@
-use std::sync::{Arc, Mutex};
+use std::{cell::RefCell, rc::Rc, sync::{Arc, Mutex}};
 
 use stunts_engine::{
     camera::{Camera, CameraBinding},
     dot::RingDot,
-    editor::{rgb_to_wgpu, Editor, Point, WebGpuResources, WindowSize, WindowSizeShader},
+    editor::{rgb_to_wgpu, ControlMode, Editor, Point, WebGpuResources, WindowSize, WindowSizeShader},
     vertex::Vertex,
 };
-use web_sys::HtmlCanvasElement;
+use wasm_bindgen::prelude::Closure;
+use web_sys::{window, HtmlCanvasElement};
 use winit::{dpi::LogicalSize, event_loop, window::WindowBuilder};
 use leptos::wasm_bindgen::JsCast;
-use wgpu::util::DeviceExt;
-pub struct GpuHelper {
-    pub depth_view: Option<wgpu::TextureView>,
-    pub gpu_resources: Option<std::sync::Arc<WebGpuResources>>,
-}
-
-impl GpuHelper {
-    pub fn new() -> Self {
-        GpuHelper {
-            depth_view: None,
-            gpu_resources: None,
-        }
-    }
-
-    pub fn recreate_depth_view(
-        &mut self,
-        gpu_resources: &std::sync::Arc<WebGpuResources>,
-        // window_size: &WindowSize,
-        window_width: u32,
-        window_height: u32,
-    ) {
-        let depth_texture = gpu_resources
-            .device
-            .create_texture(&wgpu::TextureDescriptor {
-                size: wgpu::Extent3d {
-                    width: window_width.clone(),
-                    height: window_height.clone(),
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 4, // used in a multisampled environment
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Depth24Plus,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::TEXTURE_BINDING,
-                label: Some("Depth Texture"),
-                view_formats: &[],
-            });
-
-        let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        self.depth_view = Some(depth_view);
-
-        // (depth_texture, depth_view)
-    }
-}
+use wgpu::{util::DeviceExt, StoreOp};
 
 pub struct CanvasRenderer {
-    pub editor: Arc<Mutex<Editor>>
+    pub editor: Arc<Mutex<Editor>>,
+    pub gpu_resources: Arc<WebGpuResources>,
+    pub render_pipeline: Arc<wgpu::RenderPipeline>,
+    pub depth_view: Option<Arc<wgpu::TextureView>>,
+    pub multisampled_view: Option<Arc<wgpu::TextureView>>
 }
 
+/// Call in this order:
+/// new(editor)
+/// recreate_depth_view(window_width, window_height)
+/// begin_rendering()
 impl CanvasRenderer {
     pub async fn new(editor_m: Arc<Mutex<Editor>>) -> CanvasRenderer {
         println!("Initializing Canvas Renderer...");
@@ -85,7 +49,9 @@ impl CanvasRenderer {
 
         let gpu_resources = Arc::new(gpu_resources);
 
-        let mut gpu_helper = GpuHelper::new();
+        // let mut gpu_helper = GpuHelper::new();
+
+        // let mut gpu_helper = Arc::new(gpu_helper);
 
         println!("Initializing pipeline...");
 
@@ -96,6 +62,8 @@ impl CanvasRenderer {
 
         editor.camera = Some(camera);
         editor.camera_binding = Some(camera_binding);
+
+        
 
         let sampler = gpu_resources
             .device
@@ -108,11 +76,11 @@ impl CanvasRenderer {
                 ..Default::default()
             });
 
-            gpu_helper.recreate_depth_view(
-            &gpu_resources,
-            window_size.width,
-            window_size.height,
-        );
+        // self.recreate_depth_view(
+        //     &gpu_resources,
+        //     window_size.width,
+        //     window_size.height,
+        // );
 
         let depth_stencil_state = wgpu::DepthStencilState {
             format: wgpu::TextureFormat::Depth24Plus,
@@ -275,7 +243,7 @@ impl CanvasRenderer {
         //     .surface
         //     .get_capabilities(&gpu_resources.adapter);
         // let swapchain_format = swapchain_capabilities.formats[0]; // Choosing the first available format
-        let swapchain_format = wgpu::TextureFormat::Bgra8UnormSrgb; // hardcode for now - actually must match common-floem's
+        let swapchain_format = wgpu::TextureFormat::Bgra8Unorm; // hardcode for now - actually must match common-floem's
 
         // Configure the render pipeline
         let render_pipeline =
@@ -337,6 +305,8 @@ impl CanvasRenderer {
                     },
                 });
 
+        let render_pipeline = Arc::new(render_pipeline);
+
         println!("Initialized...");
 
         let cursor_ring_dot = RingDot::new(
@@ -352,7 +322,7 @@ impl CanvasRenderer {
 
         editor.cursor_dot = Some(cursor_ring_dot);
 
-        gpu_helper.gpu_resources = Some(Arc::clone(&gpu_resources));
+        // gpu_helper.gpu_resources = Some(Arc::clone(&gpu_resources));
         editor.gpu_resources = Some(Arc::clone(&gpu_resources));
         editor.model_bind_group_layout = Some(model_bind_group_layout);
         editor.group_bind_group_layout = Some(group_bind_group_layout);
@@ -365,7 +335,494 @@ impl CanvasRenderer {
         drop(editor);
 
         Self {
-            editor: editor_m
+            editor: editor_m,
+            render_pipeline,
+            gpu_resources,
+            // gpu_helper
+            depth_view: None,
+            multisampled_view: None
         }
     }
+
+    // call right after new() and before begin_rendering() also when changing window size
+    pub fn recreate_depth_view(
+        &mut self,
+        // gpu_resources: &std::sync::Arc<WebGpuResources>,
+        // window_size: &WindowSize,
+        window_width: u32,
+        window_height: u32,
+    ) {
+        let texture_format = wgpu::TextureFormat::Bgra8Unorm;
+
+        // let config = wgpu::SurfaceConfiguration {
+        //     usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        //     format: texture_format,
+        //     width: window_width,
+        //     height: window_height,
+        //     present_mode: wgpu::PresentMode::Fifo,
+        //     alpha_mode: wgpu::CompositeAlphaMode::Auto,
+        //     // alpha_mode: wgpu::CompositeAlphaMode::PreMultiplied,
+        //     // alpha_mode: wgpu::CompositeAlphaMode::Inherit,
+        //     view_formats: vec![],
+        //     desired_maximum_frame_latency: 2,
+        // };
+
+        let surface = self.gpu_resources.surface.as_ref().expect("Couldn't get surface");
+        let mut config = surface.get_default_config(&self.gpu_resources.adapter, window_width, window_height).unwrap();
+
+        surface.configure(&self.gpu_resources.device, &config);
+
+        let multisampled_texture = self.gpu_resources
+            .device
+            .create_texture(&wgpu::TextureDescriptor {
+                size: wgpu::Extent3d {
+                    width: window_width,
+                    height: window_height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 4,
+                dimension: wgpu::TextureDimension::D2,
+                format: texture_format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                label: Some("Multisampled render texture"),
+                view_formats: &[],
+            });
+
+        let multisampled_texture = Arc::new(multisampled_texture);
+
+        let multisampled_view =
+            multisampled_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let multisampled_view = Arc::new(multisampled_view);
+
+        let depth_texture = self.gpu_resources
+            .device
+            .create_texture(&wgpu::TextureDescriptor {
+                size: wgpu::Extent3d {
+                    width: window_width.clone(),
+                    height: window_height.clone(),
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 4, // used in a multisampled environment
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Depth24Plus,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                label: Some("Depth Texture"),
+                view_formats: &[],
+            });
+
+        let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let depth_view = Arc::new(depth_view);
+
+        self.depth_view = Some(depth_view);
+        self.multisampled_view = Some(multisampled_view);
+
+        // (depth_texture, depth_view)
+    }
+
+    pub fn begin_rendering(&self) {
+        let editor = self.editor.clone();
+        let gpu_resources = self.gpu_resources.clone();
+        let render_pipeline = self.render_pipeline.clone();
+        let depth_view = self.depth_view.as_ref().expect("Couldn't get depth view").clone();
+        let multisampled_view = self.multisampled_view.as_ref().expect("Couldn't get depth view").clone();
+
+        // web-based rendering loop
+        let f = Rc::new(RefCell::new(None));
+        let g = f.clone();
+
+        let closure = Closure::wrap(Box::new(move || {
+            // if !is_rendering_paused() {
+                // let device = device.clone();
+                // let state_guard = state.lock().unwrap();
+
+                render_frame(
+                    &editor,
+                    &gpu_resources,
+                    &render_pipeline,
+                    &depth_view,
+                    &multisampled_view
+                    // &camera_bind_group,
+                    // &camera_uniform_buffer,
+                );
+
+                // drop(state_guard);
+            // }
+
+            // Schedule the next frame
+            request_animation_frame(f.borrow().as_ref().unwrap());
+        }) as Box<dyn FnMut()>);
+
+        *g.borrow_mut() = Some(closure);
+
+        // Start the rendering loop
+        request_animation_frame(g.borrow().as_ref().unwrap());
+
+
+
+    }
+}
+
+fn request_animation_frame(f: &Closure<dyn FnMut()>) {
+    window()
+        .unwrap()
+        .request_animation_frame(f.as_ref().unchecked_ref())
+        .expect("should register `requestAnimationFrame` OK");
+}
+
+fn render_frame(
+    editor: &Arc<Mutex<Editor>>,
+    // surface: &wgpu::Surface,
+    // device: &wgpu::Device,
+    // queue: &wgpu::Queue,
+    gpu_resources: &Arc<WebGpuResources>,
+    render_pipeline: &Arc<wgpu::RenderPipeline>,
+    depth_view: &Arc<wgpu::TextureView>,
+    multisampled_view: &Arc<wgpu::TextureView>,
+    // camera_bind_group: &wgpu::BindGroup,
+    // camera_uniform_buffer: &wgpu::Buffer,
+) {
+    let mut editor  = editor.lock().unwrap();
+
+    let camera = editor.camera.expect("Couldn't get camera");
+
+    let surface = &gpu_resources.surface.as_ref().expect("Couldn't get surface");
+    let device = &gpu_resources.device;
+    let queue = &gpu_resources.queue;
+
+    // Render a frame
+    let frame = surface
+        .get_current_texture()
+        .expect("Failed to acquire next swap chain texture");
+    let view = frame
+        .texture
+        .create_view(&wgpu::TextureViewDescriptor::default());
+
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("Render Encoder"),
+    });
+
+    {
+        let color = wgpu::Color {
+            r: 0.1,
+            g: 0.2,
+            b: 0.3,
+            a: 1.0,
+        };
+        // let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        //     label: Some("Render Pass"),
+        //     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+        //         view: &view,
+        //         resolve_target: None,
+        //         ops: wgpu::Operations {
+        //             load: wgpu::LoadOp::Clear(color),
+        //             store: wgpu::StoreOp::Store,
+        //         },
+        //     })],
+        //     // depth_stencil_attachment: None,
+        //     depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+        //         view: &depth_view, // This is the depth texture view
+        //         depth_ops: Some(wgpu::Operations {
+        //             load: wgpu::LoadOp::Clear(1.0), // Clear to max depth
+        //             store: wgpu::StoreOp::Store,
+        //         }),
+        //         stencil_ops: None, // Set this if using stencil
+        //     }),
+        //     timestamp_writes: None,
+        //     occlusion_query_set: None,
+        // });
+
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: None,
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &multisampled_view,       // Use the multisampled view here
+                resolve_target: Some(&view), // Resolve to the swapchain texture
+                ops: wgpu::Operations {
+                    // load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                    // store: StoreOp::Store,
+                    // load: wgpu::LoadOp::Load,
+                    // store: wgpu::StoreOp::Store,
+                    load: wgpu::LoadOp::Clear(color),
+                    store: wgpu::StoreOp::Discard,
+                },
+            })],
+            // depth_stencil_attachment: None,
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &depth_view,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+
+        // draw calls...
+        render_pass.set_pipeline(&render_pipeline);
+
+        // draw objects
+        editor.step_video_animations(&camera, None);
+        editor.step_motion_path_animations(&camera, None);
+
+        let camera_binding = editor
+            .camera_binding
+            .as_ref()
+            .expect("Couldn't get camera binding");
+
+        render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
+        render_pass.set_bind_group(
+            2,
+            editor
+                .window_size_bind_group
+                .as_ref()
+                .expect("Couldn't get window size group"),
+            &[],
+        );
+
+        // draw static (internal) polygons
+        for (poly_index, polygon) in editor.static_polygons.iter().enumerate() {
+            // uniform buffers are pricier, no reason to over-update when idle
+            if let Some(dragging_id) = editor.dragging_path_handle {
+                if dragging_id == polygon.id {
+                    polygon
+                        .transform
+                        .update_uniform_buffer(&gpu_resources.queue, &camera.window_size);
+                }
+            }
+
+            render_pass.set_bind_group(1, &polygon.bind_group, &[]);
+            render_pass.set_bind_group(3, &polygon.group_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, polygon.vertex_buffer.slice(..));
+            render_pass.set_index_buffer(
+                polygon.index_buffer.slice(..),
+                wgpu::IndexFormat::Uint32,
+            );
+            render_pass.draw_indexed(0..polygon.indices.len() as u32, 0, 0..1);
+        }
+
+        // draw motion path static polygons, using motion path transform
+        for (path_index, path) in editor.motion_paths.iter().enumerate() {
+            // uniform buffers are pricier, no reason to over-update when idle
+            if let Some(dragging_id) = editor.dragging_path {
+                if dragging_id == path.id {
+                    path.transform
+                        .update_uniform_buffer(&gpu_resources.queue, &camera.window_size);
+                }
+            }
+
+            render_pass.set_bind_group(3, &path.bind_group, &[]);
+
+            for (poly_index, polygon) in path.static_polygons.iter().enumerate() {
+                // uniform buffers are pricier, no reason to over-update when idle
+                if let Some(dragging_id) = editor.dragging_path_handle {
+                    if dragging_id == polygon.id {
+                        polygon.transform.update_uniform_buffer(
+                            &gpu_resources.queue,
+                            &camera.window_size,
+                        );
+                    }
+                }
+
+                render_pass.set_bind_group(1, &polygon.bind_group, &[]);
+                render_pass.set_vertex_buffer(0, polygon.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(
+                    polygon.index_buffer.slice(..),
+                    wgpu::IndexFormat::Uint32,
+                );
+                render_pass.draw_indexed(0..polygon.indices.len() as u32, 0, 0..1);
+            }
+        }
+
+        // draw polygons
+        for (poly_index, polygon) in editor.polygons.iter().enumerate() {
+            if !polygon.hidden {
+                // uniform buffers are pricier, no reason to over-update when idle
+                // also need to remember to update uniform buffers after changes like scale, rotation, position
+                if let Some(dragging_id) = editor.dragging_polygon {
+                    if dragging_id == polygon.id {
+                        polygon.transform.update_uniform_buffer(
+                            &gpu_resources.queue,
+                            &camera.window_size,
+                        );
+                    }
+                } else if editor.is_playing {
+                    // still need to be careful of playback performance
+                    polygon
+                        .transform
+                        .update_uniform_buffer(&gpu_resources.queue, &camera.window_size);
+                }
+
+                render_pass.set_bind_group(1, &polygon.bind_group, &[]);
+                render_pass.set_bind_group(3, &polygon.group_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, polygon.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(
+                    polygon.index_buffer.slice(..),
+                    wgpu::IndexFormat::Uint32,
+                );
+                render_pass.draw_indexed(0..polygon.indices.len() as u32, 0, 0..1);
+            }
+        }
+
+        // draw text items
+        for (text_index, text_item) in editor.text_items.iter().enumerate() {
+            if !text_item.hidden {
+                if !text_item.background_polygon.hidden {
+                    // uniform buffers are pricier, no reason to over-update when idle
+                    // also need to remember to update uniform buffers after changes like scale, rotation, position
+                    if let Some(dragging_id) = editor.dragging_text {
+                        if dragging_id == text_item.background_polygon.id {
+                            text_item
+                                .background_polygon
+                                .transform
+                                .update_uniform_buffer(
+                                    &gpu_resources.queue,
+                                    &camera.window_size,
+                                );
+                        }
+                    } else if editor.is_playing {
+                        // still need to be careful of playback performance
+                        text_item
+                            .background_polygon
+                            .transform
+                            .update_uniform_buffer(
+                                &gpu_resources.queue,
+                                &camera.window_size,
+                            );
+                    }
+
+                    render_pass.set_bind_group(
+                        1,
+                        &text_item.background_polygon.bind_group,
+                        &[],
+                    );
+                    render_pass.set_bind_group(
+                        3,
+                        &text_item.background_polygon.group_bind_group,
+                        &[],
+                    );
+                    render_pass.set_vertex_buffer(
+                        0,
+                        text_item.background_polygon.vertex_buffer.slice(..),
+                    );
+                    render_pass.set_index_buffer(
+                        text_item.background_polygon.index_buffer.slice(..),
+                        wgpu::IndexFormat::Uint32,
+                    );
+                    render_pass.draw_indexed(
+                        0..text_item.background_polygon.indices.len() as u32,
+                        0,
+                        0..1,
+                    );
+                }
+
+                // uniform buffers are pricier, no reason to over-update when idle
+                if let Some(dragging_id) = editor.dragging_text {
+                    if dragging_id == text_item.id {
+                        text_item.transform.update_uniform_buffer(
+                            &gpu_resources.queue,
+                            &camera.window_size,
+                        );
+                    }
+                } else if editor.is_playing {
+                    // still need to be careful of playback performance
+                    text_item
+                        .transform
+                        .update_uniform_buffer(&gpu_resources.queue, &camera.window_size);
+                }
+
+                render_pass.set_bind_group(1, &text_item.bind_group, &[]);
+                render_pass.set_bind_group(3, &text_item.group_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, text_item.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(
+                    text_item.index_buffer.slice(..),
+                    wgpu::IndexFormat::Uint32,
+                );
+                render_pass.draw_indexed(0..text_item.indices.len() as u32, 0, 0..1);
+            }
+        }
+
+        // draw image items
+        for (image_index, st_image) in editor.image_items.iter().enumerate() {
+            if !st_image.hidden {
+                // uniform buffers are pricier, no reason to over-update when idle
+                if let Some(dragging_id) = editor.dragging_image {
+                    if dragging_id.to_string() == st_image.id {
+                        st_image.transform.update_uniform_buffer(
+                            &gpu_resources.queue,
+                            &camera.window_size,
+                        );
+                    }
+                } else if editor.is_playing {
+                    // still need to be careful of playback performance
+                    st_image
+                        .transform
+                        .update_uniform_buffer(&gpu_resources.queue, &camera.window_size);
+                }
+
+                render_pass.set_bind_group(1, &st_image.bind_group, &[]);
+                render_pass.set_bind_group(3, &st_image.group_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, st_image.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(
+                    st_image.index_buffer.slice(..),
+                    wgpu::IndexFormat::Uint32,
+                );
+                render_pass.draw_indexed(0..st_image.indices.len() as u32, 0, 0..1);
+            }
+        }
+
+        // draw video items
+        for (video_index, st_video) in editor.video_items.iter().enumerate() {
+            if !st_video.hidden {
+                // uniform buffers are pricier, no reason to over-update when idle
+                if let Some(dragging_id) = editor.dragging_video {
+                    if dragging_id.to_string() == st_video.id {
+                        st_video.transform.update_uniform_buffer(
+                            &gpu_resources.queue,
+                            &camera.window_size,
+                        );
+                    }
+                } else if editor.is_playing {
+                    // still need to be careful of playback performance
+                    st_video
+                        .transform
+                        .update_uniform_buffer(&gpu_resources.queue, &camera.window_size);
+                }
+
+                render_pass.set_bind_group(1, &st_video.bind_group, &[]);
+                render_pass.set_bind_group(3, &st_video.group_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, st_video.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(
+                    st_video.index_buffer.slice(..),
+                    wgpu::IndexFormat::Uint32,
+                );
+                render_pass.draw_indexed(0..st_video.indices.len() as u32, 0, 0..1);
+            }
+        }
+
+        if let Some(dot) = &editor.cursor_dot {
+            dot.transform
+                .update_uniform_buffer(&gpu_resources.queue, &camera.window_size);
+            render_pass.set_bind_group(1, &dot.bind_group, &[]);
+            render_pass.set_bind_group(3, &dot.group_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, dot.vertex_buffer.slice(..));
+            render_pass
+                .set_index_buffer(dot.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            render_pass.draw_indexed(0..dot.indices.len() as u32, 0, 0..1);
+        }
+
+        // much more efficient than calling on mousemove??
+        if editor.control_mode == ControlMode::Pan && editor.is_panning {
+            editor.update_camera_binding();
+        }
+    }
+
+    queue.submit(Some(encoder.finish()));
+    device.poll(wgpu::Maintain::Poll);
+    frame.present();
 }

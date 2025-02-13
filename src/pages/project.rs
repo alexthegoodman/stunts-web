@@ -49,7 +49,17 @@ pub fn Project() -> impl IntoView {
             let record = Arc::new(Mutex::new(Record::new()));
             let editor_state = Arc::new(Mutex::new(EditorState::new(editor.clone(), record)));
 
-            let renderer  = Arc::new(CanvasRenderer::new(editor).await);
+            let mut renderer  = Arc::new(Mutex::new(CanvasRenderer::new(editor).await));
+
+            let mut renderer_guard = renderer.lock().unwrap();
+
+            renderer_guard.recreate_depth_view(900, 450);
+
+            // better to start in Effect?
+            info!("Begin rendering...");
+            renderer_guard.begin_rendering();
+
+            drop(renderer_guard);
 
             (renderer, editor_state)
         }
@@ -162,6 +172,7 @@ pub fn Project() -> impl IntoView {
 
         let renderer = renderer.get().expect("Couldn't get renderer");
         let (canvas_renderer, editor_state) = renderer.take();
+        let canvas_renderer = canvas_renderer.lock().unwrap();
         let editor = canvas_renderer.editor.clone();
 
         let mut editor_state = editor_state.lock().unwrap();
