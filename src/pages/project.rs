@@ -4,10 +4,13 @@ use leptos_use::storage::use_local_storage;
 use palette::rgb::Rgb;
 use reactive_stores::Store;
 use stunts_engine::animations::{BackgroundFill, Sequence};
+use stunts_engine::editor::{init_editor_with_model, Viewport};
 use uuid::Uuid;
 use wasm_bindgen_futures::spawn_local;
 use std::str::FromStr;
+use std::sync::{Arc, Mutex};
 
+use crate::canvas_renderer::CanvasRenderer;
 use crate::components::items::{DebouncedInput, NavButton, OptionButton};
 use crate::fetchers::projects::{get_single_project, update_sequences};
 use crate::helpers::users::AuthToken;
@@ -30,6 +33,18 @@ enum Sections {
 
 #[component]
 pub fn Project() -> impl IntoView {
+    let renderer = LocalResource::new(
+        // || (), 
+        || async move {
+            let viewport = Arc::new(Mutex::new(Viewport::new(
+                900.0 as f32,
+                450.0 as f32,
+            )));
+            let editor = Arc::new(Mutex::new(init_editor_with_model(viewport)));
+            Arc::new(CanvasRenderer::new(editor).await)
+        }
+    );
+
     let (auth_state, set_auth_state, _) =
         use_local_storage::<AuthToken, JsonSerdeCodec>("auth-token");
 
@@ -57,10 +72,10 @@ pub fn Project() -> impl IntoView {
     let (error, set_error) = signal(Option::<String>::None);
     let (loading, set_loading) = signal(false);
 
-let (keyframe_count, set_keyframe_count) = signal("4".to_string());
-let (is_curved, set_is_curved) = signal(false);
-let (auto_choreograph, set_auto_choreograph) = signal(true);
-let (auto_fade, set_auto_fade) = signal(true);
+    let (keyframe_count, set_keyframe_count) = signal("4".to_string());
+    let (is_curved, set_is_curved) = signal(false);
+    let (auto_choreograph, set_auto_choreograph) = signal(true);
+    let (auto_fade, set_auto_fade) = signal(true);
 
     Effect::new(move |_| {
         set_loading.set(true);
@@ -217,253 +232,258 @@ let (auto_fade, set_auto_fade) = signal(true);
                         destination="/settings".to_string()
                     />
                 </div>
-                <div class="flex max-w-[315px] w-full max-h-[50vh] overflow-y-scroll overflow-x-hidden p-4 border-0 rounded-[15px] shadow-[0_0_15px_4px_rgba(0,0,0,0.16)]">
-                    {move || {
-                        match section.get() {
-                            Sections::SequenceList => {
-                                view! {
-                                    <div class="flex flex-col w-full">
-                                        <div class="flex flex-row justify-between align-center w-full">
-                                            <h5>"Sequences"</h5>
+                <div class="flex flex-row">
+                    <div class="flex max-w-[315px] w-full max-h-[50vh] overflow-y-scroll overflow-x-hidden p-4 border-0 rounded-[15px] shadow-[0_0_15px_4px_rgba(0,0,0,0.16)]">
+                        {move || {
+                            match section.get() {
+                                Sections::SequenceList => {
+                                    view! {
+                                        <div class="flex flex-col w-full">
+                                            <div class="flex flex-row justify-between align-center w-full">
+                                                <h5>"Sequences"</h5>
+                                                <button
+                                                    class="text-xs rounded-md text-white stunts-gradient px-2 py-1"
+                                                    disabled=loading
+                                                    on:click=on_create_sequence
+                                                >
+                                                    "New Sequence"
+                                                </button>
+                                            </div>
+                                            // Sequence List
+                                            <div class="flex flex-col w-full mt-2">
+                                                <For
+                                                    each=move || sequences.get()
+                                                    key=|sequence| sequence.id.clone()
+                                                    children=move |sequence: Sequence| {
+                                                        view! {
+                                                            <div class="flex flex-row">
+                                                                <button
+                                                                    class="text-xs w-full text-left p-2 rounded hover:bg-gray-200
+                                                                    hover:cursor-pointer active:bg-[#edda4] transition-colors"
+                                                                    disabled=loading
+                                                                    on:click=move |_| { on_open_sequence(sequence.id.clone()) }
+                                                                >
+                                                                    "Open "
+                                                                    {move || sequence.name.clone()}
+                                                                </button>
+                                                                // <button class="text-xs w-full text-left p-2 rounded hover:bg-gray-200
+                                                                // hover:cursor-pointer active:bg-[#edda4] transition-colors">
+                                                                // "Duplicate"
+                                                                // </button>
+                                                                <button
+                                                                    class="text-xs w-full text-left p-2 rounded hover:bg-gray-200
+                                                                    hover:cursor-pointer active:bg-[#edda4] transition-colors"
+                                                                    disabled=loading
+                                                                >
+                                                                    "Add to Timeline"
+                                                                </button>
+                                                            </div>
+                                                        }
+                                                    }
+                                                />
+                                            </div>
+                                        </div>
+                                    }
+                                        .into_any()
+                                }
+                                Sections::SequenceView(sequence_id) => {
+                                    view! {
+                                        <div class="flex flex-col w-full gap-4 mb-4">
+                                            <h5>"Update Sequence"</h5>
                                             <button
-                                                class="text-xs rounded-md text-white stunts-gradient px-2 py-1"
+                                                class="text-xs w-full text-center p-2 rounded hover:bg-gray-200
+                                                hover:cursor-pointer active:bg-[#edda4] transition-colors"
                                                 disabled=loading
-                                                on:click=on_create_sequence
+                                                on:click=move |_| {
+                                                    set_section.set(Sections::SequenceList);
+                                                }
                                             >
-                                                "New Sequence"
+                                                "Back to Sequences"
                                             </button>
-                                        </div>
-                                        // Sequence List
-                                        <div class="flex flex-col w-full mt-2">
-                                            <For
-                                                each=move || sequences.get()
-                                                key=|sequence| sequence.id.clone()
-                                                children=move |sequence: Sequence| {
-                                                    view! {
-                                                        <div class="flex flex-row">
-                                                            <button
-                                                                class="text-xs w-full text-left p-2 rounded hover:bg-gray-200
-                                                                hover:cursor-pointer active:bg-[#edda4] transition-colors"
-                                                                disabled=loading
-                                                                on:click=move |_| { on_open_sequence(sequence.id.clone()) }
-                                                            >
-                                                                "Open "
-                                                                {move || sequence.name.clone()}
-                                                            </button>
-                                                            // <button class="text-xs w-full text-left p-2 rounded hover:bg-gray-200
-                                                            // hover:cursor-pointer active:bg-[#edda4] transition-colors">
-                                                            // "Duplicate"
-                                                            // </button>
-                                                            <button
-                                                                class="text-xs w-full text-left p-2 rounded hover:bg-gray-200
-                                                                hover:cursor-pointer active:bg-[#edda4] transition-colors"
-                                                                disabled=loading
-                                                            >
-                                                                "Add to Timeline"
-                                                            </button>
-                                                        </div>
+                                            <div class="flex flex-row gap-2">
+                                                <label for="keyframe_count" class="text-xs">
+                                                    "Choose keyframe count"
+                                                </label>
+                                                <select
+                                                    id="keyframe_count"
+                                                    name="keyframe_count"
+                                                    class="text-xs"
+                                                    on:change=move |ev| {
+                                                        set_keyframe_count.set(event_target_value(&ev));
                                                     }
-                                                }
-                                            />
-                                        </div>
-                                    </div>
-                                }
-                                    .into_any()
-                            }
-                            Sections::SequenceView(sequence_id) => {
-                                view! {
-                                    <div class="flex flex-col w-full gap-4 mb-4">
-                                        <h5>"Update Sequence"</h5>
-                                        <button
-                                            class="text-xs w-full text-center p-2 rounded hover:bg-gray-200
-                                            hover:cursor-pointer active:bg-[#edda4] transition-colors"
-                                            disabled=loading
-                                            on:click=move |_| {
-                                                set_section.set(Sections::SequenceList);
-                                            }
-                                        >
-                                            "Back to Sequences"
-                                        </button>
-                                        <div class="flex flex-row gap-2">
-                                            <label for="keyframe_count" class="text-xs">
-                                                "Choose keyframe count"
-                                            </label>
-                                            <select
-                                                id="keyframe_count"
-                                                name="keyframe_count"
-                                                class="text-xs"
-                                                on:change=move |ev| {
-                                                    set_keyframe_count.set(event_target_value(&ev));
-                                                }
-                                                prop:value=keyframe_count
+                                                    prop:value=keyframe_count
+                                                >
+                                                    <option value="4">"4"</option>
+                                                    <option value="6">"6"</option>
+                                                </select>
+                                                <input
+                                                    type="checkbox"
+                                                    id="is_curved"
+                                                    name="is_curved"
+                                                    // checked=false
+                                                    on:change=move |ev| {
+                                                        set_is_curved.set(event_target_checked(&ev));
+                                                    }
+                                                    prop:checked=is_curved
+                                                />
+                                                <label for="is_curved" class="text-xs">
+                                                    "Is Curved"
+                                                </label>
+                                            </div>
+                                            <div class="flex flex-row gap-2">
+                                                <input
+                                                    type="checkbox"
+                                                    id="auto_choreograph"
+                                                    name="auto_choreograph"
+                                                    // checked=true
+                                                    on:change=move |ev| {
+                                                        set_auto_choreograph.set(event_target_checked(&ev));
+                                                    }
+                                                    prop:checked=auto_choreograph
+                                                />
+                                                <label for="auto_choreograph" class="text-xs">
+                                                    "Auto-Choreograph"
+                                                </label>
+                                                <input
+                                                    type="checkbox"
+                                                    id="auto_fade"
+                                                    name="auto_fade"
+                                                    // checked=true
+                                                    on:change=move |ev| {
+                                                        set_auto_fade.set(event_target_checked(&ev));
+                                                    }
+                                                    prop:checked=auto_fade
+                                                />
+                                                <label for="auto_fade" class="text-xs">
+                                                    "Auto-Fade"
+                                                </label>
+                                            </div>
+                                            <button
+                                                type="submit"
+                                                class="group relative w-full flex justify-center py-2 px-4 border border-transparent
+                                                text-sm font-medium rounded-md text-white stunts-gradient 
+                                                focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500
+                                                disabled:opacity-50 disabled:cursor-not-allowed"
+                                                disabled=loading
                                             >
-                                                <option value="4">"4"</option>
-                                                <option value="6">"6"</option>
-                                            </select>
-                                            <input
-                                                type="checkbox"
-                                                id="is_curved"
-                                                name="is_curved"
-                                                // checked=false
-                                                on:change=move |ev| {
-                                                    set_is_curved.set(event_target_checked(&ev));
-                                                }
-                                                prop:checked=is_curved
-                                            />
-                                            <label for="is_curved" class="text-xs">
-                                                "Is Curved"
-                                            </label>
-                                        </div>
-                                        <div class="flex flex-row gap-2">
-                                            <input
-                                                type="checkbox"
-                                                id="auto_choreograph"
-                                                name="auto_choreograph"
-                                                // checked=true
-                                                on:change=move |ev| {
-                                                    set_auto_choreograph.set(event_target_checked(&ev));
-                                                }
-                                                prop:checked=auto_choreograph
-                                            />
-                                            <label for="auto_choreograph" class="text-xs">
-                                                "Auto-Choreograph"
-                                            </label>
-                                            <input
-                                                type="checkbox"
-                                                id="auto_fade"
-                                                name="auto_fade"
-                                                // checked=true
-                                                on:change=move |ev| {
-                                                    set_auto_fade.set(event_target_checked(&ev));
-                                                }
-                                                prop:checked=auto_fade
-                                            />
-                                            <label for="auto_fade" class="text-xs">
-                                                "Auto-Fade"
-                                            </label>
-                                        </div>
-                                        <button
-                                            type="submit"
-                                            class="group relative w-full flex justify-center py-2 px-4 border border-transparent
-                                            text-sm font-medium rounded-md text-white stunts-gradient 
-                                            focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500
-                                            disabled:opacity-50 disabled:cursor-not-allowed"
-                                            disabled=loading
-                                        >
-                                            {move || {
-                                                if loading.get() {
-                                                    "Generating..."
-                                                } else {
-                                                    "Generate Animation"
-                                                }
-                                            }}
-                                        </button>
-                                        <div class="flex flex-row flex-wrap gap-2">
-                                            <OptionButton
-                                                style="".to_string()
-                                                label="Add Square".to_string()
-                                                icon="square".to_string()
-                                                callback=Box::new(move || {
-                                                    println!("Add Square...");
-                                                })
-                                            />
-                                            <OptionButton
-                                                style="".to_string()
-                                                label="Add Image".to_string()
-                                                icon="image".to_string()
-                                                callback=Box::new(move || {
-                                                    println!("Add Image...");
-                                                })
-                                            />
-                                            <OptionButton
-                                                style="".to_string()
-                                                label="Add Text".to_string()
-                                                icon="text".to_string()
-                                                callback=Box::new(move || {
-                                                    println!("Add Text...");
-                                                })
-                                            />
-                                            <OptionButton
-                                                style="".to_string()
-                                                label="Add Video".to_string()
-                                                icon="video".to_string()
-                                                callback=Box::new(move || {
-                                                    println!("Add Video...");
-                                                })
-                                            />
-                                            <OptionButton
-                                                style="".to_string()
-                                                label="Screen Capture".to_string()
-                                                icon="video".to_string()
-                                                callback=Box::new(move || {
-                                                    println!("Screen Capture...");
-                                                })
-                                            />
-                                        </div>
-                                        <div class="flex flex-row flex-wrap gap-2">
-                                            {themes
-                                                .into_iter()
-                                                .map(|theme: [f64; 5]| {
-                                                    let background_color_row = theme[0].trunc() as usize;
-                                                    let background_color_column = (theme[0].fract() * 10.0)
-                                                        as usize;
-                                                    let background_color = colors[background_color_row][background_color_column];
-                                                    let background_color: Rgb<Rgb, u8> = Rgb::from_str(
-                                                            &background_color,
-                                                        )
-                                                        .expect("Couldn't get background color");
-                                                    let text_color_row = theme[4].trunc() as usize;
-                                                    let text_color_column = (theme[4].fract() * 10.0) as usize;
-                                                    let text_color = colors[text_color_row][text_color_column];
-                                                    let text_color: Rgb<Rgb, u8> = Rgb::from_str(&text_color)
-                                                        .expect("Couldn't get text color");
-                                                    let font_index = theme[2];
-
-                                                    view! {
-                                                        <OptionButton
-                                                            style=format!(
-                                                                "color: rgb({},{},{}); background-color: rgb({},{},{})",
-                                                                text_color.red,
-                                                                text_color.green,
-                                                                text_color.blue,
-                                                                background_color.red,
-                                                                background_color.green,
-                                                                background_color.blue,
-                                                            )
-                                                            label="Apply Theme".to_string()
-                                                            icon="brush".to_string()
-                                                            callback=Box::new(move || {
-                                                                println!("Apply Theme...");
-                                                            })
-                                                        />
+                                                {move || {
+                                                    if loading.get() {
+                                                        "Generating..."
+                                                    } else {
+                                                        "Generate Animation"
                                                     }
-                                                })
-                                                .collect_view()}
+                                                }}
+                                            </button>
+                                            <div class="flex flex-row flex-wrap gap-2">
+                                                <OptionButton
+                                                    style="".to_string()
+                                                    label="Add Square".to_string()
+                                                    icon="square".to_string()
+                                                    callback=Box::new(move || {
+                                                        println!("Add Square...");
+                                                    })
+                                                />
+                                                <OptionButton
+                                                    style="".to_string()
+                                                    label="Add Image".to_string()
+                                                    icon="image".to_string()
+                                                    callback=Box::new(move || {
+                                                        println!("Add Image...");
+                                                    })
+                                                />
+                                                <OptionButton
+                                                    style="".to_string()
+                                                    label="Add Text".to_string()
+                                                    icon="text".to_string()
+                                                    callback=Box::new(move || {
+                                                        println!("Add Text...");
+                                                    })
+                                                />
+                                                <OptionButton
+                                                    style="".to_string()
+                                                    label="Add Video".to_string()
+                                                    icon="video".to_string()
+                                                    callback=Box::new(move || {
+                                                        println!("Add Video...");
+                                                    })
+                                                />
+                                                <OptionButton
+                                                    style="".to_string()
+                                                    label="Screen Capture".to_string()
+                                                    icon="video".to_string()
+                                                    callback=Box::new(move || {
+                                                        println!("Screen Capture...");
+                                                    })
+                                                />
+                                            </div>
+                                            <div class="flex flex-row flex-wrap gap-2">
+                                                {themes
+                                                    .into_iter()
+                                                    .map(|theme: [f64; 5]| {
+                                                        let background_color_row = theme[0].trunc() as usize;
+                                                        let background_color_column = (theme[0].fract() * 10.0)
+                                                            as usize;
+                                                        let background_color = colors[background_color_row][background_color_column];
+                                                        let background_color: Rgb<Rgb, u8> = Rgb::from_str(
+                                                                &background_color,
+                                                            )
+                                                            .expect("Couldn't get background color");
+                                                        let text_color_row = theme[4].trunc() as usize;
+                                                        let text_color_column = (theme[4].fract() * 10.0) as usize;
+                                                        let text_color = colors[text_color_row][text_color_column];
+                                                        let text_color: Rgb<Rgb, u8> = Rgb::from_str(&text_color)
+                                                            .expect("Couldn't get text color");
+                                                        let font_index = theme[2];
+
+                                                        view! {
+                                                            <OptionButton
+                                                                style=format!(
+                                                                    "color: rgb({},{},{}); background-color: rgb({},{},{})",
+                                                                    text_color.red,
+                                                                    text_color.green,
+                                                                    text_color.blue,
+                                                                    background_color.red,
+                                                                    background_color.green,
+                                                                    background_color.blue,
+                                                                )
+                                                                label="Apply Theme".to_string()
+                                                                icon="brush".to_string()
+                                                                callback=Box::new(move || {
+                                                                    println!("Apply Theme...");
+                                                                })
+                                                            />
+                                                        }
+                                                    })
+                                                    .collect_view()}
+                                            </div>
+                                            <label class="text-sm">"Background Color"</label>
+                                            <div class="flex flex-row gap-2">
+                                                <DebouncedInput
+                                                    id="background_red".to_string()
+                                                    label="Red".to_string()
+                                                    placeholder="Red".to_string()
+                                                />
+                                                <DebouncedInput
+                                                    id="background_green".to_string()
+                                                    label="Green".to_string()
+                                                    placeholder="Green".to_string()
+                                                />
+                                                <DebouncedInput
+                                                    id="background_blue".to_string()
+                                                    label="Blue".to_string()
+                                                    placeholder="Blue".to_string()
+                                                />
+                                            </div>
                                         </div>
-                                        <label class="text-sm">"Background Color"</label>
-                                        <div class="flex flex-row gap-2">
-                                            <DebouncedInput
-                                                id="background_red".to_string()
-                                                label="Red".to_string()
-                                                placeholder="Red".to_string()
-                                            />
-                                            <DebouncedInput
-                                                id="background_green".to_string()
-                                                label="Green".to_string()
-                                                placeholder="Green".to_string()
-                                            />
-                                            <DebouncedInput
-                                                id="background_blue".to_string()
-                                                label="Blue".to_string()
-                                                placeholder="Blue".to_string()
-                                            />
-                                        </div>
-                                    </div>
+                                    }
+                                        .into_any()
                                 }
-                                    .into_any()
                             }
-                        }
-                    }}
+                        }}
+                    </div>
+                    <div>
+                        <canvas id="scene-canvas" class="w-[900px] h-[450px] border border-black" />
+                    </div>
                 </div>
             </div>
         </ErrorBoundary>

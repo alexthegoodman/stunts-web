@@ -3,126 +3,16 @@ use std::sync::{Arc, Mutex};
 use stunts_engine::{
     camera::{Camera, CameraBinding},
     dot::RingDot,
-    editor::{rgb_to_wgpu, Editor, Point, WindowSize, WindowSizeShader},
+    editor::{rgb_to_wgpu, Editor, Point, WebGpuResources, WindowSize, WindowSizeShader},
     vertex::Vertex,
 };
 use web_sys::HtmlCanvasElement;
 use winit::{dpi::LogicalSize, event_loop, window::WindowBuilder};
 use leptos::wasm_bindgen::JsCast;
 use wgpu::util::DeviceExt;
-
-// Adapted from Floem
-pub struct GpuResources {
-    /// The rendering surface, representing the window or screen where the graphics will be displayed.
-    /// It is the interface between wgpu and the platform's windowing system, enabling rendering
-    /// onto the screen.
-    pub surface: Option<wgpu::Surface<'static>>,
-
-    /// The adapter that represents the GPU or a rendering backend. It provides information about
-    /// the capabilities of the hardware and is used to request a logical device (`wgpu::Device`).
-    pub adapter: wgpu::Adapter,
-
-    /// The logical device that serves as an interface to the GPU. It is responsible for creating
-    /// resources such as buffers, textures, and pipelines, and manages the execution of commands.
-    /// The `device` provides a connection to the physical hardware represented by the `adapter`.
-    pub device: wgpu::Device,
-
-    /// The command queue that manages the submission of command buffers to the GPU for execution.
-    /// It is used to send rendering and computation commands to the device. The `queue` ensures
-    /// that commands are executed in the correct order and manages synchronization.
-    pub queue: wgpu::Queue,
-}
-
-impl GpuResources {
-    /// Request GPU resources
-    pub async fn request(
-        window_size: WindowSize
-    ) -> Self {
-        // Create logical components (instance, adapter, device, queue, surface, etc.)
-        let dx12_compiler = wgpu::Dx12Compiler::Dxc {
-            dxil_path: None, // Specify a path to custom location
-            dxc_path: None,  // Specify a path to custom location
-        };
-
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::PRIMARY,
-            dx12_shader_compiler: dx12_compiler,
-            flags: wgpu::InstanceFlags::empty(),
-            gles_minor_version: wgpu::Gles3MinorVersion::Version2,
-        });
-
-        let event_loop = event_loop::EventLoop::new().unwrap();
-        let builder = WindowBuilder::new().with_inner_size(LogicalSize::new(window_size.width, window_size.height));
-        #[cfg(target_arch = "wasm32")] // necessary for web-sys
-        let builder = {
-            use winit::platform::web::WindowBuilderExtWebSys;
-            builder.with_canvas(Some(canvas))
-        };
-        let winit_window = builder.build(&event_loop).unwrap();
-
-        let surface = unsafe {
-            instance
-                .create_surface(winit_window)
-                .expect("Couldn't create GPU Surface")
-        };
-
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::default(),
-                compatible_surface: Some(&surface),
-                force_fallback_adapter: false,
-            })
-            .await
-            .ok_or("Failed to find an appropriate adapter")
-            .unwrap();
-
-        let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: None,
-                    required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::default(),
-                    memory_hints: wgpu::MemoryHints::default()
-                },
-                None,
-            )
-            .await
-            .expect("Failed to create device");
-                        
-        return GpuResources {
-            surface: Some(surface),
-            adapter,
-            device,
-            queue
-        }
-    }
-}
-
-/// Possible errors during GPU resource setup.
-#[derive(Debug)]
-pub enum GpuResourceError {
-    SurfaceCreationError(wgpu::CreateSurfaceError),
-    AdapterNotFoundError,
-    DeviceRequestError(wgpu::RequestDeviceError),
-}
-
-impl std::fmt::Display for GpuResourceError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            GpuResourceError::SurfaceCreationError(err) => {
-                write!(f, "Surface creation error: {}", err)
-            }
-            GpuResourceError::AdapterNotFoundError => {
-                write!(f, "Failed to find a suitable GPU adapter")
-            }
-            GpuResourceError::DeviceRequestError(err) => write!(f, "Device request error: {}", err),
-        }
-    }
-}
-
 pub struct GpuHelper {
     pub depth_view: Option<wgpu::TextureView>,
-    pub gpu_resources: Option<std::sync::Arc<GpuResources>>,
+    pub gpu_resources: Option<std::sync::Arc<WebGpuResources>>,
 }
 
 impl GpuHelper {
@@ -135,7 +25,7 @@ impl GpuHelper {
 
     pub fn recreate_depth_view(
         &mut self,
-        gpu_resources: &std::sync::Arc<GpuResources>,
+        gpu_resources: &std::sync::Arc<WebGpuResources>,
         // window_size: &WindowSize,
         window_width: u32,
         window_height: u32,
@@ -188,16 +78,15 @@ impl CanvasRenderer {
             height,
         };
 
-        let gpu_resources = GpuResources::request(window_size).await;
+        // gets surface, adapter, device, and queue
+        let gpu_resources = WebGpuResources::request(canvas, window_size).await;
 
         let gpu_resources = Arc::new(gpu_resources);
 
         let mut gpu_helper = GpuHelper::new();
-        // gpu_helper.gpu_resources = Some(gpu_resources);
 
         println!("Initializing pipeline...");
 
-        // let mut editor = cloned11.lock().unwrap();
         let mut editor = editor.lock().unwrap();
 
         let camera = Camera::new(window_size);
@@ -462,7 +351,7 @@ impl CanvasRenderer {
         editor.cursor_dot = Some(cursor_ring_dot);
 
         gpu_helper.gpu_resources = Some(Arc::clone(&gpu_resources));
-        // editor.gpu_resources = Some(Arc::clone(&gpu_resources)); // TODO
+        editor.gpu_resources = Some(Arc::clone(&gpu_resources));
         editor.model_bind_group_layout = Some(model_bind_group_layout);
         editor.group_bind_group_layout = Some(group_bind_group_layout);
         editor.window_size_bind_group = Some(window_size_bind_group);

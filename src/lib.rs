@@ -1,10 +1,16 @@
+use std::sync::{Arc, Mutex};
+
+use canvas_renderer::CanvasRenderer;
 use helpers::utilities::SavedState;
 use leptos::prelude::*;
 use leptos_meta::*;
 use leptos_router::{components::*, path};
 use pages::{create_project::CreateProject, project::Project, projects::Projects};
 use reactive_stores::Store;
-use stunts_engine::timelines::SavedTimelineStateConfig;
+use stunts_engine::{
+    editor::{init_editor_with_model, Editor, Viewport},
+    timelines::SavedTimelineStateConfig,
+};
 
 // Modules
 mod canvas_renderer;
@@ -28,6 +34,8 @@ pub fn App() -> impl IntoView {
             timeline_sequences: Vec::new(),
         },
     }));
+
+    // provide_context(renderer);
 
     view! {
         <Html attr:lang="en" attr:dir="ltr" attr:data-theme="light" />
