@@ -3,8 +3,9 @@ use gloo_net::http::Request;
 use leptos::{prelude::ServerFnError, *};
 use serde::{Deserialize, Serialize};
 use stunts_engine::{animations::Sequence, timelines::SavedTimelineStateConfig};
+use web_sys::window;
 
-use crate::helpers::{projects::{CreateProjectRequest, CreateProjectResponse, ProjectInfo, ProjectsResponse, SingleProjectRequest, SingleProjectResponse, UpdateSequencesRequest, UpdateSequencesResponse, UpdateTimelineRequest, UpdateTimelineResponse}, utilities::SavedState};
+use crate::helpers::{projects::{CreateProjectRequest, CreateProjectResponse, ProjectInfo, ProjectsResponse, SingleProjectRequest, SingleProjectResponse, StoredProject, UpdateSequencesRequest, UpdateSequencesResponse, UpdateTimelineRequest, UpdateTimelineResponse}, users::AuthToken, utilities::SavedState};
 
 pub async fn get_single_project(token: String, project_id: String) -> SingleProjectResponse {
     // let create_request = SingleProjectRequest { project_id };
@@ -100,6 +101,31 @@ pub async fn create_project(token: String, name: String, empty_file_data: SavedS
         // Handle the error case
         panic!("Project failed: {}", response.status_text());
     }
+}
+
+pub async fn save_sequences_data(sequences: Vec<Sequence>) -> UpdateSequencesResponse {
+    // fetch stored-project and auth-token from local storage
+    
+    // Get window object
+    let window = window().expect("Couldn't get window");
+    
+    // Get local storage
+    let local_storage = window
+        .local_storage().expect("Couldn't get local storage").expect("Couldn't get storage");
+    
+    // Fetch stored project ID
+    let stored_project = local_storage
+        .get_item("stored-project").expect("Couldn't get stored project").expect("Couldn't get stored project 2");
+        let stored_project: StoredProject = serde_json::from_str(&stored_project).expect("Couldn't convert storage to struct");
+
+
+    // Fetch auth token
+    let auth_token = local_storage
+        .get_item("auth-token").expect("Couldn't get auth token").expect("Couldn't get auth token 2");
+    let auth_token: AuthToken = serde_json::from_str(&auth_token).expect("Couldn't convert storage to struct");
+
+
+    update_sequences(auth_token.token, stored_project.project_id, sequences).await
 }
 
 pub async fn update_sequences(token: String, project_id: String, sequences: Vec<Sequence>) -> UpdateSequencesResponse {

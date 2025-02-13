@@ -1,10 +1,12 @@
 use codee::string::JsonSerdeCodec;
 use leptos::{logging, prelude::*};
 use leptos_use::storage::use_local_storage;
+use log::info;
 use palette::rgb::Rgb;
 use reactive_stores::Store;
 use stunts_engine::animations::{BackgroundFill, Sequence};
-use stunts_engine::editor::{init_editor_with_model, Viewport};
+use stunts_engine::editor::{init_editor_with_model, rgb_to_wgpu, wgpu_to_human, Viewport, WindowSize};
+use undo::Record;
 use uuid::Uuid;
 use wasm_bindgen_futures::spawn_local;
 use std::str::FromStr;
@@ -12,6 +14,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::canvas_renderer::CanvasRenderer;
 use crate::components::items::{DebouncedInput, NavButton, OptionButton};
+use crate::editor_state::EditorState;
 use crate::fetchers::projects::{get_single_project, update_sequences};
 use crate::helpers::users::AuthToken;
 use crate::helpers::utilities::{SavedState, SavedStateStoreFields};
@@ -40,8 +43,15 @@ pub fn Project() -> impl IntoView {
                 900.0 as f32,
                 450.0 as f32,
             )));
+            
             let editor = Arc::new(Mutex::new(init_editor_with_model(viewport)));
-            Arc::new(CanvasRenderer::new(editor).await)
+
+            let record = Arc::new(Mutex::new(Record::new()));
+            let editor_state = Arc::new(Mutex::new(EditorState::new(editor.clone(), record)));
+
+            let renderer  = Arc::new(CanvasRenderer::new(editor).await);
+
+            (renderer, editor_state)
         }
     );
 
@@ -82,16 +92,28 @@ pub fn Project() -> impl IntoView {
 
         let auth_state = auth_state.get_untracked();
 
-        spawn_local({
-            async move {
-                let response = get_single_project(auth_state.token, project_id()).await;
+        let renderer = renderer.get();
 
-                sequences.set(response.project.file_data.sequences);
-                timeline_state.set(response.project.file_data.timeline_state);
+        if let Some(renderer) = renderer {
+            info!("Got renderer!");
 
-                set_loading.set(false);
-            }
-        });
+            let (canvas_renderer, editor_state) = renderer.take();
+
+            spawn_local({
+                async move {
+                    let response = get_single_project(auth_state.token, project_id()).await;
+    
+                    let mut editor_state = editor_state.lock().unwrap();
+            
+                    editor_state.record_state.saved_state = Some(response.project.file_data.clone());
+    
+                    sequences.set(response.project.file_data.sequences);
+                    timeline_state.set(response.project.file_data.timeline_state);
+    
+                    set_loading.set(false);
+                }
+            });
+        }
     });      
 
     let on_create_sequence = {
@@ -133,8 +155,141 @@ pub fn Project() -> impl IntoView {
         }
     };
 
-    let on_open_sequence = move |sequence_id| {
-        set_section.set(Sections::SequenceView(sequence_id));
+    let on_open_sequence = move |sequence_id: String| {
+        set_section.set(Sections::SequenceView(sequence_id.clone()));
+
+        println!("Open Sequence...");
+
+        let renderer = renderer.get().expect("Couldn't get renderer");
+        let (canvas_renderer, editor_state) = renderer.take();
+        let editor = canvas_renderer.editor.clone();
+
+        let mut editor_state = editor_state.lock().unwrap();
+        let saved_state = editor_state
+            .record_state
+            .saved_state
+            .as_ref()
+            .expect("Couldn't get Saved State");
+
+        let saved_sequence = saved_state
+            .sequences
+            .iter()
+            .find(|s| s.id == sequence_id.clone())
+            .expect("Couldn't find matching sequence")
+            .clone();
+
+        let mut background_fill = Some(BackgroundFill::Color([
+            wgpu_to_human(0.8) as i32,
+            wgpu_to_human(0.8) as i32,
+            wgpu_to_human(0.8) as i32,
+            255,
+        ]));
+
+        if saved_sequence.background_fill.is_some() {
+            background_fill = saved_sequence.background_fill.clone();
+        }
+
+        // for the background polygon and its signal
+        editor_state.selected_polygon_id =
+            Uuid::from_str(&saved_sequence.id)
+                .expect("Couldn't convert string to uuid");
+
+        drop(editor_state);
+
+        println!("Opening Sequence...");
+
+        let mut editor = editor.lock().unwrap();
+
+        let camera = editor.camera.expect("Couldn't get camera");
+        let viewport = editor.viewport.lock().unwrap();
+
+        let window_size = WindowSize {
+            width: viewport.width as u32,
+            height: viewport.height as u32,
+        };
+
+        drop(viewport);
+
+        let mut rng = rand::thread_rng();
+
+        // set hidden to false based on sequence
+        // also reset all objects to hidden=true beforehand
+        editor.polygons.iter_mut().for_each(|p| {
+            p.hidden = true;
+        });
+        editor.image_items.iter_mut().for_each(|i| {
+            i.hidden = true;
+        });
+        editor.text_items.iter_mut().for_each(|t| {
+            t.hidden = true;
+        });
+        editor.video_items.iter_mut().for_each(|t| {
+            t.hidden = true;
+        });
+
+        saved_sequence.active_polygons.iter().for_each(|ap| {
+            let polygon = editor
+                .polygons
+                .iter_mut()
+                .find(|p| p.id.to_string() == ap.id)
+                .expect("Couldn't find polygon");
+            polygon.hidden = false;
+        });
+        saved_sequence.active_image_items.iter().for_each(|si| {
+            let image = editor
+                .image_items
+                .iter_mut()
+                .find(|i| i.id.to_string() == si.id)
+                .expect("Couldn't find image");
+            image.hidden = false;
+        });
+        saved_sequence.active_text_items.iter().for_each(|tr| {
+            let text = editor
+                .text_items
+                .iter_mut()
+                .find(|t| t.id.to_string() == tr.id)
+                .expect("Couldn't find image");
+            text.hidden = false;
+        });
+        saved_sequence.active_video_items.iter().for_each(|tr| {
+            let video = editor
+                .video_items
+                .iter_mut()
+                .find(|t| t.id.to_string() == tr.id)
+                .expect("Couldn't find image");
+            video.hidden = false;
+        });
+
+        match background_fill.expect("Couldn't get default background fill")
+        {
+            BackgroundFill::Color(fill) => {
+                editor.replace_background(
+                    Uuid::from_str(&saved_sequence.id)
+                        .expect("Couldn't convert string to uuid"),
+                    rgb_to_wgpu(
+                        fill[0] as u8,
+                        fill[1] as u8,
+                        fill[2] as u8,
+                        fill[3] as f32,
+                    ),
+                );
+            }
+            _ => {
+                println!("Not supported yet...");
+            }
+        }
+
+        println!("Objects restored!");
+
+        editor.update_motion_paths(&saved_sequence);
+
+        println!("Motion Paths restored!");
+
+        // drop(editor);
+
+        // selected_sequence_data.set(saved_sequence.clone());
+        // selected_sequence_id.set(item.clone());
+        // sequence_selected.set(true);
     };
 
     let aside_width = 260.0;

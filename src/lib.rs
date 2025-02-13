@@ -15,6 +15,7 @@ use stunts_engine::{
 // Modules
 mod canvas_renderer;
 mod components;
+mod editor_state;
 mod fetchers;
 mod helpers;
 mod pages;

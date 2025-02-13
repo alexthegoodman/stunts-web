@@ -6,11 +6,17 @@ use wasm_bindgen_futures::spawn_local;
 
 use crate::{
     components::icon::CreateIcon,
-    helpers::{projects::ProjectInfo, users::AuthToken},
+    helpers::{
+        projects::{ProjectInfo, StoredProject},
+        users::AuthToken,
+    },
 };
 
 #[component]
 pub fn ProjectItem(project_id: String, project_label: String, icon: String) -> impl IntoView {
+    let (stored_project, set_stored_project, _) =
+        use_local_storage::<StoredProject, JsonSerdeCodec>("stored-project");
+
     let navigate = use_navigate();
 
     let (error, set_error) = signal(Option::<String>::None);
@@ -25,6 +31,10 @@ pub fn ProjectItem(project_id: String, project_label: String, icon: String) -> i
             set_error.set(None);
 
             let project_id = project_id.clone();
+
+            set_stored_project.set(StoredProject {
+                project_id: project_id.clone(),
+            });
 
             navigate(&format!("/project/{}", project_id), Default::default());
 
@@ -130,7 +140,7 @@ pub fn OptionButton(
     }
 }
 
-use leptos_use::{use_debounce_fn, DebounceOptions};
+use leptos_use::{storage::use_local_storage, use_debounce_fn, DebounceOptions};
 
 #[component]
 pub fn DebouncedInput(id: String, label: String, placeholder: String) -> impl IntoView {

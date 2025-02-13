@@ -56,10 +56,12 @@ impl GpuHelper {
     }
 }
 
-pub struct CanvasRenderer {}
+pub struct CanvasRenderer {
+    pub editor: Arc<Mutex<Editor>>
+}
 
 impl CanvasRenderer {
-    pub async fn new(editor: Arc<Mutex<Editor>>) -> CanvasRenderer {
+    pub async fn new(editor_m: Arc<Mutex<Editor>>) -> CanvasRenderer {
         println!("Initializing Canvas Renderer...");
 
         let window = web_sys::window().unwrap();
@@ -87,7 +89,7 @@ impl CanvasRenderer {
 
         println!("Initializing pipeline...");
 
-        let mut editor = editor.lock().unwrap();
+        let mut editor = editor_m.lock().unwrap();
 
         let camera = Camera::new(window_size);
         let camera_binding = CameraBinding::new(&gpu_resources.device);
@@ -360,6 +362,10 @@ impl CanvasRenderer {
 
         editor.update_camera_binding();
 
-        Self {}
+        drop(editor);
+
+        Self {
+            editor: editor_m
+        }
     }
 }

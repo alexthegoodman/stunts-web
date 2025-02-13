@@ -28,6 +28,7 @@ palette = "0.7.6"
 wgpu = "22.1.0"
 winit = { version = "0.29.15", features = ["rwh_05"] }
 bytemuck = "1.15.0"
+undo = "0.51.0"
 
 [dependencies.web-sys]
 version = "0.3"
@@ -39,6 +40,7 @@ features = [
     "HtmlCanvasElement",
     "HtmlSelectElement",
     "Gpu",
+    "Storage",
 ]
 
 [dev-dependencies]

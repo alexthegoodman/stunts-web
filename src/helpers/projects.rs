@@ -6,6 +6,11 @@ use stunts_engine::timelines::SavedTimelineStateConfig;
 
 use super::utilities::SavedState;
 
+#[derive(PartialEq, Serialize, Deserialize, Clone, Default)]
+pub struct StoredProject {
+    pub project_id: String,
+}
+
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct ProjectInfo {
     // pub dir_name: String,
