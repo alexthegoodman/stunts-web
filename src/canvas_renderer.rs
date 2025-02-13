@@ -1,5 +1,6 @@
 use std::{cell::RefCell, rc::Rc, sync::{Arc, Mutex}};
 
+use log::info;
 use stunts_engine::{
     camera::{Camera, CameraBinding},
     dot::RingDot,
@@ -36,8 +37,12 @@ impl CanvasRenderer {
             .dyn_into::<HtmlCanvasElement>()
             .unwrap();
 
-        let height = canvas.height();
-        let width = canvas.width();
+        // let height = canvas.height();
+        // let width = canvas.width();
+        let width = 900;
+        let height = 550;
+
+        info!("Canvas dimensions {:?} {:?}", width, height);
 
         let window_size: WindowSize = WindowSize {
             width,
@@ -53,7 +58,7 @@ impl CanvasRenderer {
 
         // let mut gpu_helper = Arc::new(gpu_helper);
 
-        println!("Initializing pipeline...");
+        info!("Initializing pipeline...");
 
         let mut editor = editor_m.lock().unwrap();
 
@@ -307,7 +312,7 @@ impl CanvasRenderer {
 
         let render_pipeline = Arc::new(render_pipeline);
 
-        println!("Initialized...");
+        info!("Initialized...");
 
         let cursor_ring_dot = RingDot::new(
             &gpu_resources.device,
@@ -542,11 +547,11 @@ fn render_frame(
                 view: &multisampled_view,       // Use the multisampled view here
                 resolve_target: Some(&view), // Resolve to the swapchain texture
                 ops: wgpu::Operations {
-                    // load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                    load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
                     // store: StoreOp::Store,
                     // load: wgpu::LoadOp::Load,
                     // store: wgpu::StoreOp::Store,
-                    load: wgpu::LoadOp::Clear(color),
+                    // load: wgpu::LoadOp::Clear(color),
                     store: wgpu::StoreOp::Discard,
                 },
             })],
