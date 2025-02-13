@@ -87,3 +87,87 @@ pub fn NavButton(label: String, icon: String, destination: String) -> impl IntoV
         </button>
     }
 }
+
+#[component]
+pub fn OptionButton(
+    style: String,
+    label: String,
+    icon: String,
+    mut callback: Box<dyn FnMut() -> ()>,
+) -> impl IntoView {
+    // let navigate = use_navigate();
+
+    let (error, set_error) = signal(Option::<String>::None);
+    let (loading, set_loading) = signal(false);
+
+    let on_submit = {
+        // let navigate = navigate.clone();
+
+        move |ev: leptos::web_sys::MouseEvent| {
+            ev.prevent_default();
+            // set_loading.set(true);
+            // set_error.set(None);
+
+            // set_loading.set(false);
+            callback();
+        }
+    };
+
+    view! {
+        <button
+            class="w-[60px] h-[60px] flex flex-col justify-center items-center border border-gray-400 rounded-[15px]
+            transition-colors duration-200 ease-in-out hover:bg-gray-200 hover:cursor-pointer 
+            focus-visible:border-2 focus-visible:border-blue-500"
+            style=style
+            disabled=loading
+            on:click=on_submit
+        >
+            <div class="text-black mb-1">
+                <CreateIcon icon=icon size="24px".to_string() />
+            </div>
+            <span class="text-xs">{label}</span>
+        </button>
+    }
+}
+
+use leptos_use::{use_debounce_fn, DebounceOptions};
+
+#[component]
+pub fn DebouncedInput(id: String, label: String, placeholder: String) -> impl IntoView {
+    let (value, set_value) = signal("".to_string());
+    let (debounced_value, set_debounced_value) = signal("".to_string());
+
+    let mut debounced_fn = use_debounce_fn(
+        move || {
+            // do something
+            set_debounced_value.set(value.get());
+        },
+        1000.0,
+    );
+
+    view! {
+        <div class="space-y-4">
+            <label for=id.clone() class="text-xs">
+                {label}
+            </label>
+            <input
+                id=id.clone()
+                name=id
+                placeholder=placeholder
+                type="text"
+                value=value
+                on:input=move |ev| {
+                    let new_value = event_target_value(&ev);
+                    set_value.set(new_value.clone());
+                    debounced_fn();
+                }
+                class="border rounded px-2 py-1 w-full min-w-2 text-xs"
+            />
+
+        // <div>
+        // <p>"Current value: " {value}</p>
+        // <p>"Debounced value: " {debounced_value}</p>
+        // </div>
+        </div>
+    }
+}

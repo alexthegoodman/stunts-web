@@ -24,6 +24,7 @@ wasm-bindgen-futures = "0.4"
 stunts-engine = { path = "D:/projects/common/stunts-engine", version = "0.1.0" }
 reactive_stores = "0.1.7"
 uuid = { version = "1.13.1", features = ["v4", "js"] }
+palette = "0.7.6"
 
 # utils
 # strum = { version = "0.25", features = ["derive", "strum_macros"] }
