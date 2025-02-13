@@ -5,14 +5,17 @@ use log::info;
 use palette::rgb::Rgb;
 use reactive_stores::Store;
 use stunts_engine::animations::{BackgroundFill, Sequence};
-use stunts_engine::editor::{init_editor_with_model, rgb_to_wgpu, wgpu_to_human, Viewport, WindowSize};
+use stunts_engine::editor::{init_editor_with_model, rgb_to_wgpu, wgpu_to_human, Point, Viewport, WindowSize};
+use stunts_engine::polygon::{PolygonConfig, SavedPoint, SavedPolygonConfig, SavedStroke, Stroke};
 use undo::Record;
 use uuid::Uuid;
 use wasm_bindgen_futures::spawn_local;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
+use rand::Rng;
 
 use crate::canvas_renderer::CanvasRenderer;
+use crate::components::icon::CreateIcon;
 use crate::components::items::{DebouncedInput, NavButton, OptionButton};
 use crate::editor_state::EditorState;
 use crate::fetchers::projects::{get_single_project, update_sequences};
@@ -108,6 +111,7 @@ pub fn Project() -> impl IntoView {
             info!("Got renderer!");
 
             let (canvas_renderer, editor_state) = renderer.take();
+            
 
             spawn_local({
                 async move {
@@ -116,10 +120,28 @@ pub fn Project() -> impl IntoView {
                     let mut editor_state = editor_state.lock().unwrap();
             
                     editor_state.record_state.saved_state = Some(response.project.file_data.clone());
+
+                    let cloned_sequences = response.project.file_data.sequences.clone();
     
                     sequences.set(response.project.file_data.sequences);
                     timeline_state.set(response.project.file_data.timeline_state);
-    
+
+                    drop(editor_state);
+
+                    let canvas_renderer = canvas_renderer.lock().unwrap();
+                    let editor = canvas_renderer.editor.clone();    
+
+                    let mut editor = editor.lock().unwrap();
+                    
+                    cloned_sequences.iter().enumerate().for_each(|(i, s)| {
+                        editor.restore_sequence_objects(
+                            &s,
+                            true,
+                        );
+                    });
+
+                    drop(editor);
+
                     set_loading.set(false);
                 }
             });
@@ -303,6 +325,136 @@ pub fn Project() -> impl IntoView {
         // sequence_selected.set(true);
     };
 
+    // Add to renderer Editor
+    // Then add save to db
+    // Update the context signal
+    // Finally persist it in certain structs
+    let on_add_square = move |sequence_id: String| {
+        info!("Adding Square...");
+
+        let renderer = renderer
+            .get()
+            .expect("Couldn't get renderer");
+        let (canvas_renderer, editor_state) = renderer.take();
+        let canvas_renderer = canvas_renderer.lock().unwrap();
+        let editor_m = canvas_renderer.editor.clone();
+
+        let mut editor = editor_m.lock().unwrap();
+        
+        let mut rng = rand::thread_rng();
+        let random_number_800 = rng.gen_range(0..=800);
+        let random_number_450 = rng.gen_range(0..=450);
+        
+        let new_id = Uuid::new_v4();
+        
+        let polygon_config = PolygonConfig {
+            id: new_id.clone(),
+            name: "Square".to_string(),
+            points: vec![
+                Point { x: 0.0, y: 0.0 },
+                Point { x: 1.0, y: 0.0 },
+                Point { x: 1.0, y: 1.0 },
+                Point { x: 0.0, y: 1.0 },
+            ],
+            dimensions: (100.0, 100.0),
+            position: Point {
+                x: random_number_800 as f32,
+                y: random_number_450 as f32,
+            },
+            border_radius: 0.0,
+            fill: [1.0, 1.0, 1.0, 1.0],
+            stroke: Stroke {
+                fill: [1.0, 1.0, 1.0, 1.0],
+                thickness: 2.0,
+            },
+            layer: -2,
+        };
+
+        editor
+            .add_polygon(
+                polygon_config.clone(),
+                "Polygon".to_string(),
+                new_id,
+                sequence_id.clone(),
+            );
+        
+        drop(editor);
+        
+        let mut editor_state = editor_state.lock().unwrap();
+        
+        editor_state
+            .add_saved_polygon(
+                sequence_id.clone(),
+                SavedPolygonConfig {
+                    id: polygon_config.id.to_string().clone(),
+                    name: polygon_config.name.clone(),
+                    dimensions: (
+                        polygon_config.dimensions.0 as i32,
+                        polygon_config.dimensions.1 as i32,
+                    ),
+                    fill: [
+                        polygon_config.fill[0] as i32,
+                        polygon_config.fill[1] as i32,
+                        polygon_config.fill[2] as i32,
+                        polygon_config.fill[3] as i32,
+                    ],
+                    border_radius: polygon_config.border_radius as i32,
+                    position: SavedPoint {
+                        x: polygon_config.position.x as i32,
+                        y: polygon_config.position.y as i32,
+                    },
+                    stroke: SavedStroke {
+                        thickness: polygon_config.stroke.thickness as i32,
+                        fill: [
+                            polygon_config.stroke.fill[0] as i32,
+                            polygon_config.stroke.fill[1] as i32,
+                            polygon_config.stroke.fill[2] as i32,
+                            polygon_config.stroke.fill[3] as i32,
+                        ],
+                    },
+                    layer: polygon_config.layer.clone(),
+                },
+            );
+        
+        let saved_state = editor_state
+            .record_state
+            .saved_state
+            .as_ref()
+            .expect("Couldn't get saved state");
+        
+        let updated_sequence = saved_state
+            .sequences
+            .iter()
+            .find(|s| s.id == sequence_id.clone())
+            .expect("Couldn't get updated sequence");
+        
+        let sequence_cloned = updated_sequence.clone();
+        
+        sequences.set(saved_state.sequences.clone());
+
+        drop(editor_state);
+        
+        let mut editor = editor_m.lock().unwrap();
+        
+        editor.current_sequence_data = Some(
+            sequence_cloned.clone(),
+        );
+        
+        editor.update_motion_paths(&sequence_cloned);
+        
+        drop(editor);
+
+        info!("Square added!");
+    };
+
+    let on_add_text = move |sequence_id: String| {};
+
+    let on_add_image = move |sequence_id: String| {};
+
+    let on_add_video = move |sequence_id: String| {};
+
+    let on_open_capture = move |sequence_id: String| {};
+
     let aside_width = 260.0;
     let quarters = (aside_width / 4.0) + (5.0 * 4.0);
     let thirds = (aside_width / 3.0) + (5.0 * 3.0);
@@ -455,17 +607,22 @@ pub fn Project() -> impl IntoView {
                                 Sections::SequenceView(sequence_id) => {
                                     view! {
                                         <div class="flex flex-col w-full gap-4 mb-4">
-                                            <h5>"Update Sequence"</h5>
-                                            <button
-                                                class="text-xs w-full text-center p-2 rounded hover:bg-gray-200
-                                                hover:cursor-pointer active:bg-[#edda4] transition-colors"
-                                                disabled=loading
-                                                on:click=move |_| {
-                                                    set_section.set(Sections::SequenceList);
-                                                }
-                                            >
-                                                "Back to Sequences"
-                                            </button>
+                                            <div class="flex flex-row items-center">
+                                                <button
+                                                    class="flex flex-col justify-center items-center text-xs w-[35px] h-[35px] text-center rounded 
+                                                    hover:bg-gray-200 hover:cursor-pointer active:bg-[#edda4] transition-colors mr-2"
+                                                    disabled=loading
+                                                    on:click=move |_| {
+                                                        set_section.set(Sections::SequenceList);
+                                                    }
+                                                >
+                                                    <CreateIcon
+                                                        icon="arrow-left".to_string()
+                                                        size="24px".to_string()
+                                                    />
+                                                </button>
+                                                <h5>"Update Sequence"</h5>
+                                            </div>
                                             <div class="flex flex-row gap-2">
                                                 <label for="keyframe_count" class="text-xs">
                                                     "Choose keyframe count"
@@ -545,40 +702,55 @@ pub fn Project() -> impl IntoView {
                                                     style="".to_string()
                                                     label="Add Square".to_string()
                                                     icon="square".to_string()
-                                                    callback=Box::new(move || {
-                                                        println!("Add Square...");
+                                                    callback=Box::new({
+                                                        let sequence_id = sequence_id.clone();
+                                                        move || {
+                                                            on_add_square(sequence_id.clone());
+                                                        }
                                                     })
                                                 />
                                                 <OptionButton
                                                     style="".to_string()
                                                     label="Add Image".to_string()
                                                     icon="image".to_string()
-                                                    callback=Box::new(move || {
-                                                        println!("Add Image...");
+                                                    callback=Box::new({
+                                                        let sequence_id = sequence_id.clone();
+                                                        move || {
+                                                            on_add_image(sequence_id.clone());
+                                                        }
                                                     })
                                                 />
                                                 <OptionButton
                                                     style="".to_string()
                                                     label="Add Text".to_string()
                                                     icon="text".to_string()
-                                                    callback=Box::new(move || {
-                                                        println!("Add Text...");
+                                                    callback=Box::new({
+                                                        let sequence_id = sequence_id.clone();
+                                                        move || {
+                                                            on_add_text(sequence_id.clone());
+                                                        }
                                                     })
                                                 />
                                                 <OptionButton
                                                     style="".to_string()
                                                     label="Add Video".to_string()
                                                     icon="video".to_string()
-                                                    callback=Box::new(move || {
-                                                        println!("Add Video...");
+                                                    callback=Box::new({
+                                                        let sequence_id = sequence_id.clone();
+                                                        move || {
+                                                            on_add_video(sequence_id.clone());
+                                                        }
                                                     })
                                                 />
                                                 <OptionButton
                                                     style="".to_string()
                                                     label="Screen Capture".to_string()
                                                     icon="video".to_string()
-                                                    callback=Box::new(move || {
-                                                        println!("Screen Capture...");
+                                                    callback=Box::new({
+                                                        let sequence_id = sequence_id.clone();
+                                                        move || {
+                                                            on_open_capture(sequence_id.clone());
+                                                        }
                                                     })
                                                 />
                                             </div>
