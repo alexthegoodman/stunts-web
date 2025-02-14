@@ -10,7 +10,7 @@ use stunts_engine::{
 use wasm_bindgen::prelude::Closure;
 use web_sys::{window, HtmlCanvasElement};
 use winit::{dpi::LogicalSize, event_loop, window::WindowBuilder};
-use leptos::wasm_bindgen::JsCast;
+use leptos::{attr::label, wasm_bindgen::JsCast};
 use wgpu::{util::DeviceExt, StoreOp};
 
 pub struct CanvasRenderer {
@@ -70,16 +70,16 @@ impl CanvasRenderer {
 
         
 
-        let sampler = gpu_resources
-            .device
-            .create_sampler(&wgpu::SamplerDescriptor {
-                address_mode_u: wgpu::AddressMode::ClampToEdge,
-                address_mode_v: wgpu::AddressMode::ClampToEdge,
-                mag_filter: wgpu::FilterMode::Linear,
-                min_filter: wgpu::FilterMode::Linear,
-                mipmap_filter: wgpu::FilterMode::Nearest,
-                ..Default::default()
-            });
+        // let sampler = gpu_resources
+        //     .device
+        //     .create_sampler(&wgpu::SamplerDescriptor {
+        //         address_mode_u: wgpu::AddressMode::ClampToEdge,
+        //         address_mode_v: wgpu::AddressMode::ClampToEdge,
+        //         mag_filter: wgpu::FilterMode::Linear,
+        //         min_filter: wgpu::FilterMode::Linear,
+        //         mipmap_filter: wgpu::FilterMode::Nearest,
+        //         ..Default::default()
+        //     });
 
         // self.recreate_depth_view(
         //     &gpu_resources,
@@ -542,7 +542,7 @@ fn render_frame(
         // });
 
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: None,
+            label: Some("Stunts Web Render Pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &multisampled_view,       // Use the multisampled view here
                 resolve_target: Some(&view), // Resolve to the swapchain texture

@@ -6,9 +6,10 @@ use palette::rgb::Rgb;
 use reactive_stores::Store;
 use rfd::AsyncFileDialog;
 use stunts_engine::animations::{BackgroundFill, Sequence};
-use stunts_engine::editor::{init_editor_with_model, rgb_to_wgpu, wgpu_to_human, Point, Viewport, WindowSize};
+use stunts_engine::editor::{init_editor_with_model, rgb_to_wgpu, wgpu_to_human, Point, Viewport, WindowSize, CANVAS_HORIZ_OFFSET, CANVAS_VERT_OFFSET};
 use stunts_engine::polygon::{PolygonConfig, SavedPoint, SavedPolygonConfig, SavedStroke, Stroke};
 use stunts_engine::st_image::{SavedStImageConfig, StImageConfig};
+use stunts_engine::text_due::{SavedTextRendererConfig, TextRendererConfig};
 use undo::Record;
 use uuid::Uuid;
 use wasm_bindgen_futures::spawn_local;
@@ -449,7 +450,99 @@ pub fn Project() -> impl IntoView {
         info!("Square added!");
     };
 
-    let on_add_text = move |sequence_id: String| {};
+    let on_add_text = move |sequence_id: String| {
+        let renderer = renderer
+            .get()
+            .expect("Couldn't get renderer");
+        let (canvas_renderer, editor_state) = renderer.take();
+        let canvas_renderer = canvas_renderer.lock().unwrap();
+        let editor_m = canvas_renderer.editor.clone();
+
+        // Add to scene
+        let mut editor = editor_m.lock().unwrap();
+
+        let mut rng = rand::thread_rng();
+        let random_number_800 = rng.gen_range(0..=800);
+        let random_number_450 = rng.gen_range(0..=450);
+
+        let new_id = Uuid::new_v4();
+        let new_text = "New text".to_string();
+        let font_family = "Aleo".to_string();
+
+        let position = Point {
+            x: random_number_800 as f32 + CANVAS_HORIZ_OFFSET,
+            y: random_number_450 as f32 + CANVAS_VERT_OFFSET,
+        };
+
+        let text_config = TextRendererConfig {
+            id: new_id.clone(),
+            name: "New Text Item".to_string(),
+            text: new_text.clone(),
+            font_family: font_family.clone(),
+            dimensions: (100.0, 100.0),
+            position,
+            layer: -2,
+            color: [20, 20, 200, 255],
+            font_size: 28,
+            background_fill: [200, 200, 200, 255],
+        };
+
+        editor.add_text_item(
+            text_config.clone(),
+            new_text.clone(),
+            new_id,
+            sequence_id.clone(),
+        );
+
+        drop(editor);
+
+        let mut editor_state = editor_state.lock().unwrap();
+        editor_state.add_saved_text_item(
+            sequence_id.clone(),
+            SavedTextRendererConfig {
+                id: text_config.id.to_string().clone(),
+                name: text_config.name.clone(),
+                text: new_text,
+                font_family,
+                dimensions: (
+                    text_config.dimensions.0 as i32,
+                    text_config.dimensions.1 as i32,
+                ),
+                position: SavedPoint {
+                    x: position.x as i32,
+                    y: position.y as i32,
+                },
+                layer: text_config.layer.clone(),
+                color: text_config.color.clone(),
+                font_size: text_config.font_size.clone(),
+                background_fill: Some(text_config.background_fill),
+            },
+        );
+
+        let saved_state = editor_state
+            .record_state
+            .saved_state
+            .as_ref()
+            .expect("Couldn't get saved state");
+        let updated_sequence = saved_state
+            .sequences
+            .iter()
+            .find(|s| s.id == sequence_id.clone())
+            .expect("Couldn't get updated sequence");
+
+        let sequence_cloned = updated_sequence.clone();
+
+        sequences.set(saved_state.sequences.clone());
+
+        drop(editor_state);
+
+        let mut editor = editor_m.lock().unwrap();
+
+        editor.current_sequence_data = Some(sequence_cloned.clone());
+        editor.update_motion_paths(&sequence_cloned);
+
+        drop(editor);
+    };
 
     let on_add_image = move |sequence_id: String| {
         let auth_state = auth_state.get_untracked();
@@ -491,8 +584,8 @@ pub fn Project() -> impl IntoView {
                         let new_id = Uuid::new_v4();
 
                         let position = Point {
-                            x: random_number_800 as f32 + 600.0,
-                            y: random_number_450 as f32 + 50.0,
+                            x: random_number_800 as f32 + CANVAS_HORIZ_OFFSET,
+                            y: random_number_450 as f32 + CANVAS_VERT_OFFSET,
                         };
 
                         let image_config = StImageConfig {
@@ -505,23 +598,7 @@ pub fn Project() -> impl IntoView {
                             layer: -1,
                         };
 
-                        // let gpu_helper = gpu_cloned_3.lock().unwrap();
-                        // let gpu_resources = gpu_helper
-                        //     .gpu_resources
-                        //     .as_ref()
-                        //     .expect("Couldn't get gpu resources");
-                        // let device = &gpu_resources.device;
-                        // let queue = &gpu_resources.queue;
-                        // let viewport = viewport_cloned_3.lock().unwrap();
-                        // let window_size = WindowSize {
-                        //     width: viewport.width as u32,
-                        //     height: viewport.height as u32,
-                        // };
-
                         editor.add_image_item(
-                            // &window_size,
-                            // &device,
-                            // &queue,
                             image_config.clone(),
                             url.clone(),
                             &file_data,
@@ -531,8 +608,6 @@ pub fn Project() -> impl IntoView {
 
                         info!("Adding image: {:?}", new_id);
 
-                        // drop(viewport);
-                        // drop(gpu_helper);
                         drop(editor);
 
                         let mut editor_state = editor_state.lock().unwrap();
@@ -567,8 +642,6 @@ pub fn Project() -> impl IntoView {
                             .iter()
                             .find(|s| s.id == sequence_id.clone())
                             .expect("Couldn't get updated sequence");
-
-                        // selected_sequence_data.set(updated_sequence.clone());
 
                         let sequence_cloned = updated_sequence.clone();
 
