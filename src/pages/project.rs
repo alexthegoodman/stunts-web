@@ -4,21 +4,25 @@ use leptos_use::storage::use_local_storage;
 use log::info;
 use palette::rgb::Rgb;
 use reactive_stores::Store;
+use rfd::AsyncFileDialog;
 use stunts_engine::animations::{BackgroundFill, Sequence};
 use stunts_engine::editor::{init_editor_with_model, rgb_to_wgpu, wgpu_to_human, Point, Viewport, WindowSize};
 use stunts_engine::polygon::{PolygonConfig, SavedPoint, SavedPolygonConfig, SavedStroke, Stroke};
+use stunts_engine::st_image::{SavedStImageConfig, StImageConfig};
 use undo::Record;
 use uuid::Uuid;
 use wasm_bindgen_futures::spawn_local;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use rand::Rng;
+use gloo_net::http::Request;
 
 use crate::canvas_renderer::CanvasRenderer;
 use crate::components::icon::CreateIcon;
 use crate::components::items::{DebouncedInput, NavButton, OptionButton};
 use crate::editor_state::EditorState;
-use crate::fetchers::projects::{get_single_project, update_sequences};
+use crate::fetchers::projects::{get_single_project, save_image, update_sequences};
+use crate::helpers::media::restore_sequence_objects;
 use crate::helpers::users::AuthToken;
 use crate::helpers::utilities::{SavedState, SavedStateStoreFields};
 
@@ -112,10 +116,9 @@ pub fn Project() -> impl IntoView {
 
             let (canvas_renderer, editor_state) = renderer.take();
             
-
             spawn_local({
                 async move {
-                    let response = get_single_project(auth_state.token, project_id()).await;
+                    let response = get_single_project(auth_state.token.clone(), project_id()).await;
     
                     let mut editor_state = editor_state.lock().unwrap();
             
@@ -129,18 +132,16 @@ pub fn Project() -> impl IntoView {
                     drop(editor_state);
 
                     let canvas_renderer = canvas_renderer.lock().unwrap();
-                    let editor = canvas_renderer.editor.clone();    
+                    let editor = canvas_renderer.editor.clone();   
 
-                    let mut editor = editor.lock().unwrap();
-                    
-                    cloned_sequences.iter().enumerate().for_each(|(i, s)| {
-                        editor.restore_sequence_objects(
-                            &s,
-                            true,
-                        );
-                    });
+                    info!("Restoring objects..."); 
 
-                    drop(editor);
+                    restore_sequence_objects(
+                        editor.clone(),
+                        cloned_sequences,
+                        true,
+                        auth_state.token
+                    );
 
                     set_loading.set(false);
                 }
@@ -275,6 +276,7 @@ pub fn Project() -> impl IntoView {
                 .find(|i| i.id.to_string() == si.id)
                 .expect("Couldn't find image");
             image.hidden = false;
+            info!("Image revealed... {:?}", si.id);
         });
         saved_sequence.active_text_items.iter().for_each(|tr| {
             let text = editor
@@ -449,7 +451,144 @@ pub fn Project() -> impl IntoView {
 
     let on_add_text = move |sequence_id: String| {};
 
-    let on_add_image = move |sequence_id: String| {};
+    let on_add_image = move |sequence_id: String| {
+        let auth_state = auth_state.get_untracked();
+        let renderer = renderer
+            .get()
+            .expect("Couldn't get renderer");
+        let (canvas_renderer, editor_state) = renderer.take();
+
+        spawn_local({
+            async move {
+                if let Some(file) = AsyncFileDialog::new()
+                    .add_filter("images", &["png", "jpg", "jpeg"])
+                    .pick_file()
+                    .await
+                {
+                    let file_name = file.file_name();
+                    info!("File name: {:?}", file_name);
+
+                    // Read the file data
+                    let file_data = file.read().await;
+
+                    let save_response = save_image(auth_state.token, file_name, file_data.clone()).await;
+
+                    if let Some(response) = save_response {
+                        let url = response.url;
+
+                        info!("File url: {:?}", url);
+                        
+                        let canvas_renderer = canvas_renderer.lock().unwrap();
+                        let editor_m = canvas_renderer.editor.clone();
+
+                        // Add to scene
+                        let mut editor = editor_m.lock().unwrap();
+
+                        let mut rng = rand::thread_rng();
+                        let random_number_800 = rng.gen_range(0..=800);
+                        let random_number_450 = rng.gen_range(0..=450);
+
+                        let new_id = Uuid::new_v4();
+
+                        let position = Point {
+                            x: random_number_800 as f32 + 600.0,
+                            y: random_number_450 as f32 + 50.0,
+                        };
+
+                        let image_config = StImageConfig {
+                            id: new_id.clone().to_string(),
+                            name: "New Image Item".to_string(),
+                            dimensions: (100, 100),
+                            position,
+                            // path: new_path.clone(),
+                            url: url.clone(),
+                            layer: -1,
+                        };
+
+                        // let gpu_helper = gpu_cloned_3.lock().unwrap();
+                        // let gpu_resources = gpu_helper
+                        //     .gpu_resources
+                        //     .as_ref()
+                        //     .expect("Couldn't get gpu resources");
+                        // let device = &gpu_resources.device;
+                        // let queue = &gpu_resources.queue;
+                        // let viewport = viewport_cloned_3.lock().unwrap();
+                        // let window_size = WindowSize {
+                        //     width: viewport.width as u32,
+                        //     height: viewport.height as u32,
+                        // };
+
+                        editor.add_image_item(
+                            // &window_size,
+                            // &device,
+                            // &queue,
+                            image_config.clone(),
+                            url.clone(),
+                            &file_data,
+                            new_id,
+                            sequence_id.clone(),
+                        );
+
+                        info!("Adding image: {:?}", new_id);
+
+                        // drop(viewport);
+                        // drop(gpu_helper);
+                        drop(editor);
+
+                        let mut editor_state = editor_state.lock().unwrap();
+                        editor_state.add_saved_image_item(
+                            sequence_id.clone(),
+                            SavedStImageConfig {
+                                id: image_config.id.to_string().clone(),
+                                name: image_config.name.clone(),
+                                // path: new_path.clone(),
+                                url: url.clone(),
+                                dimensions: (
+                                    image_config.dimensions.0,
+                                    image_config.dimensions.1,
+                                ),
+                                position: SavedPoint {
+                                    x: position.x as i32,
+                                    y: position.y as i32,
+                                },
+                                layer: image_config.layer.clone(),
+                            },
+                        );
+
+                        info!("Saved image!");
+
+                        let saved_state = editor_state
+                            .record_state
+                            .saved_state
+                            .as_ref()
+                            .expect("Couldn't get saved state");
+                        let updated_sequence = saved_state
+                            .sequences
+                            .iter()
+                            .find(|s| s.id == sequence_id.clone())
+                            .expect("Couldn't get updated sequence");
+
+                        // selected_sequence_data.set(updated_sequence.clone());
+
+                        let sequence_cloned = updated_sequence.clone();
+
+                        sequences.set(saved_state.sequences.clone());
+
+                        drop(editor_state);
+
+                        let mut editor = editor_m.lock().unwrap();
+
+                        editor.current_sequence_data = Some(sequence_cloned.clone());
+                        editor.update_motion_paths(&sequence_cloned);
+
+                        drop(editor);
+
+                        info!("Image added!");
+                    }
+                }
+            }
+        });
+    };
 
     let on_add_video = move |sequence_id: String| {};
 

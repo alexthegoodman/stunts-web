@@ -98,3 +98,12 @@ pub struct UpdateTimelineRequest {
 pub struct UpdateTimelineResponse {
     pub updated_project: ProjectData,
 }
+
+#[derive(Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct UploadResponse {
+    pub url: String,
+    pub file_name: String,
+    pub size: u32,
+    pub mime_type: String,
+}

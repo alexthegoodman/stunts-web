@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use stunts_engine::{animations::Sequence, timelines::SavedTimelineStateConfig};
 use web_sys::window;
 
-use crate::helpers::{projects::{CreateProjectRequest, CreateProjectResponse, ProjectInfo, ProjectsResponse, SingleProjectRequest, SingleProjectResponse, StoredProject, UpdateSequencesRequest, UpdateSequencesResponse, UpdateTimelineRequest, UpdateTimelineResponse}, users::AuthToken, utilities::SavedState};
+use crate::helpers::{projects::{CreateProjectRequest, CreateProjectResponse, ProjectInfo, ProjectsResponse, SingleProjectRequest, SingleProjectResponse, StoredProject, UpdateSequencesRequest, UpdateSequencesResponse, UpdateTimelineRequest, UpdateTimelineResponse, UploadResponse}, users::AuthToken, utilities::SavedState};
 
 pub async fn get_single_project(token: String, project_id: String) -> SingleProjectResponse {
     // let create_request = SingleProjectRequest { project_id };
@@ -179,6 +179,42 @@ pub async fn update_timeline(token: String, project_id: String, timeline_state: 
     } else {
         // Handle the error case
         panic!("Project failed: {}", response.status_text());
+    }
+}
+
+pub async fn save_image(token: String, file_name: String, file_data: Vec<u8>) -> Option<UploadResponse> {
+    // Send the file data to the Next.js API
+    let response = Request::post("http://localhost:3000/api/upload/image")
+        .header("Authorization", &format!("Bearer {}", token)) // Replace with your JWT token
+        .header("X-File-Name", &file_name) // Include the file name
+        .body(file_data)
+        .expect("Couldn't add request body") // Send the raw bytes
+        .send()
+        .await;
+
+    match response {
+        Ok(resp) => {
+            if resp.ok() {
+                log::info!("File uploaded successfully!");
+
+                // Parse the JSON response
+                let upload_response: UploadResponse = resp
+                    .json()
+                    .await
+                    .expect("Failed to parse upload response");
+
+                Some(upload_response)
+            } else {
+                log::error!("Upload failed: {}", resp.status_text());
+
+                None
+            }
+        }
+        Err(err) => {
+            log::error!("Upload error: {:?}", err);
+
+            None
+        }
     }
 }
 
