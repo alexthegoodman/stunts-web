@@ -6414,6 +6414,7 @@ dependencies = [
  "futures",
  "gloo-net",
  "image",
+ "js-sys",
  "lyon_tessellation",
  "munkres",
  "pollster 0.3.0",

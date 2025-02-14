@@ -1,26 +1,31 @@
 use codee::string::JsonSerdeCodec;
+use gloo_net::http::Request;
 use leptos::{logging, prelude::*};
 use leptos_use::storage::use_local_storage;
 use log::info;
 use palette::rgb::Rgb;
+use rand::Rng;
 use reactive_stores::Store;
 use rfd::AsyncFileDialog;
-use stunts_engine::animations::{BackgroundFill, Sequence};
-use stunts_engine::editor::{init_editor_with_model, rgb_to_wgpu, wgpu_to_human, Point, Viewport, WindowSize, CANVAS_HORIZ_OFFSET, CANVAS_VERT_OFFSET};
+use std::str::FromStr;
+use std::sync::{Arc, Mutex};
+use stunts_engine::animations::{BackgroundFill, ObjectType, Sequence};
+use stunts_engine::editor::{
+    init_editor_with_model, rgb_to_wgpu, wgpu_to_human, Point, Viewport, WindowSize,
+    CANVAS_HORIZ_OFFSET, CANVAS_VERT_OFFSET,
+};
 use stunts_engine::polygon::{PolygonConfig, SavedPoint, SavedPolygonConfig, SavedStroke, Stroke};
 use stunts_engine::st_image::{SavedStImageConfig, StImageConfig};
+use stunts_engine::st_video::StVideoConfig;
 use stunts_engine::text_due::{SavedTextRendererConfig, TextRendererConfig};
 use undo::Record;
 use uuid::Uuid;
 use wasm_bindgen_futures::spawn_local;
-use std::str::FromStr;
-use std::sync::{Arc, Mutex};
-use rand::Rng;
-use gloo_net::http::Request;
 
 use crate::canvas_renderer::CanvasRenderer;
 use crate::components::icon::CreateIcon;
 use crate::components::items::{DebouncedInput, NavButton, OptionButton};
+use crate::components::layers::{Layer, LayerPanel};
 use crate::editor_state::EditorState;
 use crate::fetchers::projects::{get_single_project, save_image, update_sequences};
 use crate::helpers::media::restore_sequence_objects;
@@ -44,34 +49,32 @@ enum Sections {
 
 #[component]
 pub fn Project() -> impl IntoView {
-    let renderer = LocalResource::new(
-        // || (), 
-        || async move {
-            let viewport = Arc::new(Mutex::new(Viewport::new(
-                900.0 as f32,
-                450.0 as f32,
-            )));
-            
-            let editor = Arc::new(Mutex::new(init_editor_with_model(viewport)));
+    let renderer: LocalResource<(Arc<Mutex<CanvasRenderer>>, Arc<Mutex<EditorState>>)> =
+        LocalResource::new(
+            // || (),
+            || async move {
+                let viewport = Arc::new(Mutex::new(Viewport::new(900.0 as f32, 450.0 as f32)));
 
-            let record = Arc::new(Mutex::new(Record::new()));
-            let editor_state = Arc::new(Mutex::new(EditorState::new(editor.clone(), record)));
+                let editor = Arc::new(Mutex::new(init_editor_with_model(viewport)));
 
-            let mut renderer  = Arc::new(Mutex::new(CanvasRenderer::new(editor).await));
+                let record = Arc::new(Mutex::new(Record::new()));
+                let editor_state = Arc::new(Mutex::new(EditorState::new(editor.clone(), record)));
 
-            let mut renderer_guard = renderer.lock().unwrap();
+                let mut renderer = Arc::new(Mutex::new(CanvasRenderer::new(editor).await));
 
-            renderer_guard.recreate_depth_view(900, 450);
+                let mut renderer_guard = renderer.lock().unwrap();
 
-            // better to start in Effect?
-            info!("Begin rendering...");
-            renderer_guard.begin_rendering();
+                renderer_guard.recreate_depth_view(900, 450);
 
-            drop(renderer_guard);
+                // better to start in Effect?
+                info!("Begin rendering...");
+                renderer_guard.begin_rendering();
 
-            (renderer, editor_state)
-        }
-    );
+                drop(renderer_guard);
+
+                (renderer, editor_state)
+            },
+        );
 
     let (auth_state, set_auth_state, _) =
         use_local_storage::<AuthToken, JsonSerdeCodec>("auth-token");
@@ -105,6 +108,10 @@ pub fn Project() -> impl IntoView {
     let (auto_choreograph, set_auto_choreograph) = signal(true);
     let (auto_fade, set_auto_fade) = signal(true);
 
+    let layers: RwSignal<Vec<Layer>> = create_rw_signal(Vec::new());
+
+    let dragger_id = create_rw_signal(Uuid::nil());
+
     Effect::new(move |_| {
         set_loading.set(true);
 
@@ -116,39 +123,40 @@ pub fn Project() -> impl IntoView {
             info!("Got renderer!");
 
             let (canvas_renderer, editor_state) = renderer.take();
-            
+
             spawn_local({
                 async move {
                     let response = get_single_project(auth_state.token.clone(), project_id()).await;
-    
+
                     let mut editor_state = editor_state.lock().unwrap();
-            
-                    editor_state.record_state.saved_state = Some(response.project.file_data.clone());
+
+                    editor_state.record_state.saved_state =
+                        Some(response.project.file_data.clone());
 
                     let cloned_sequences = response.project.file_data.sequences.clone();
-    
+
                     sequences.set(response.project.file_data.sequences);
                     timeline_state.set(response.project.file_data.timeline_state);
 
                     drop(editor_state);
 
                     let canvas_renderer = canvas_renderer.lock().unwrap();
-                    let editor = canvas_renderer.editor.clone();   
+                    let editor = canvas_renderer.editor.clone();
 
-                    info!("Restoring objects..."); 
+                    info!("Restoring objects...");
 
                     restore_sequence_objects(
                         editor.clone(),
                         cloned_sequences,
                         true,
-                        auth_state.token
+                        auth_state.token,
                     );
 
                     set_loading.set(false);
                 }
             });
         }
-    });      
+    });
 
     let on_create_sequence = {
         let navigate = navigate.clone();
@@ -179,10 +187,11 @@ pub fn Project() -> impl IntoView {
             spawn_local({
                 // let navigate = navigate.clone();
                 let new_sequences = new_sequences.clone();
-    
+
                 async move {
-                    let response = update_sequences(auth_state.token, project_id(), new_sequences).await;
-    
+                    let response =
+                        update_sequences(auth_state.token, project_id(), new_sequences).await;
+
                     set_loading.set(false);
                 }
             });
@@ -226,8 +235,7 @@ pub fn Project() -> impl IntoView {
 
         // for the background polygon and its signal
         editor_state.selected_polygon_id =
-            Uuid::from_str(&saved_sequence.id)
-                .expect("Couldn't convert string to uuid");
+            Uuid::from_str(&saved_sequence.id).expect("Couldn't convert string to uuid");
 
         drop(editor_state);
 
@@ -296,18 +304,11 @@ pub fn Project() -> impl IntoView {
             video.hidden = false;
         });
 
-        match background_fill.expect("Couldn't get default background fill")
-        {
+        match background_fill.expect("Couldn't get default background fill") {
             BackgroundFill::Color(fill) => {
                 editor.replace_background(
-                    Uuid::from_str(&saved_sequence.id)
-                        .expect("Couldn't convert string to uuid"),
-                    rgb_to_wgpu(
-                        fill[0] as u8,
-                        fill[1] as u8,
-                        fill[2] as u8,
-                        fill[3] as f32,
-                    ),
+                    Uuid::from_str(&saved_sequence.id).expect("Couldn't convert string to uuid"),
+                    rgb_to_wgpu(fill[0] as u8, fill[1] as u8, fill[2] as u8, fill[3] as f32),
                 );
             }
             _ => {
@@ -320,6 +321,46 @@ pub fn Project() -> impl IntoView {
         editor.update_motion_paths(&saved_sequence);
 
         println!("Motion Paths restored!");
+
+        info!("Restoring layers...");
+
+        let mut new_layers = Vec::new();
+        editor.polygons.iter().for_each(|polygon| {
+            if !polygon.hidden {
+                let polygon_config: PolygonConfig = polygon.to_config();
+                let new_layer: Layer = Layer::from_polygon_config(&polygon_config);
+                new_layers.push(new_layer);
+            }
+        });
+        editor.text_items.iter().for_each(|text| {
+            if !text.hidden {
+                let text_config: TextRendererConfig = text.to_config();
+                let new_layer: Layer = Layer::from_text_config(&text_config);
+                new_layers.push(new_layer);
+            }
+        });
+        editor.image_items.iter().for_each(|image| {
+            if !image.hidden {
+                let image_config: StImageConfig = image.to_config();
+                let new_layer: Layer = Layer::from_image_config(&image_config);
+                new_layers.push(new_layer);
+            }
+        });
+        editor.video_items.iter().for_each(|video| {
+            if !video.hidden {
+                let video_config: StVideoConfig = video.to_config();
+                let new_layer: Layer = Layer::from_video_config(&video_config);
+                new_layers.push(new_layer);
+            }
+        });
+
+        // sort layers by layer_index property, lower values should come first in the list
+        // but reverse the order because the UI outputs the first one first, thus it displays last
+        new_layers.sort_by(|a, b| b.initial_layer_index.cmp(&a.initial_layer_index));
+
+        layers.set(new_layers);
+
+        drop(editor);
 
         // drop(editor);
 
@@ -335,21 +376,19 @@ pub fn Project() -> impl IntoView {
     let on_add_square = move |sequence_id: String| {
         info!("Adding Square...");
 
-        let renderer = renderer
-            .get()
-            .expect("Couldn't get renderer");
+        let renderer = renderer.get().expect("Couldn't get renderer");
         let (canvas_renderer, editor_state) = renderer.take();
         let canvas_renderer = canvas_renderer.lock().unwrap();
         let editor_m = canvas_renderer.editor.clone();
 
         let mut editor = editor_m.lock().unwrap();
-        
+
         let mut rng = rand::thread_rng();
         let random_number_800 = rng.gen_range(0..=800);
         let random_number_450 = rng.gen_range(0..=450);
-        
+
         let new_id = Uuid::new_v4();
-        
+
         let polygon_config = PolygonConfig {
             id: new_id.clone(),
             name: "Square".to_string(),
@@ -373,87 +412,81 @@ pub fn Project() -> impl IntoView {
             layer: -2,
         };
 
-        editor
-            .add_polygon(
-                polygon_config.clone(),
-                "Polygon".to_string(),
-                new_id,
-                sequence_id.clone(),
-            );
-        
+        editor.add_polygon(
+            polygon_config.clone(),
+            "Polygon".to_string(),
+            new_id,
+            sequence_id.clone(),
+        );
+
         drop(editor);
-        
+
         let mut editor_state = editor_state.lock().unwrap();
-        
-        editor_state
-            .add_saved_polygon(
-                sequence_id.clone(),
-                SavedPolygonConfig {
-                    id: polygon_config.id.to_string().clone(),
-                    name: polygon_config.name.clone(),
-                    dimensions: (
-                        polygon_config.dimensions.0 as i32,
-                        polygon_config.dimensions.1 as i32,
-                    ),
-                    fill: [
-                        polygon_config.fill[0] as i32,
-                        polygon_config.fill[1] as i32,
-                        polygon_config.fill[2] as i32,
-                        polygon_config.fill[3] as i32,
-                    ],
-                    border_radius: polygon_config.border_radius as i32,
-                    position: SavedPoint {
-                        x: polygon_config.position.x as i32,
-                        y: polygon_config.position.y as i32,
-                    },
-                    stroke: SavedStroke {
-                        thickness: polygon_config.stroke.thickness as i32,
-                        fill: [
-                            polygon_config.stroke.fill[0] as i32,
-                            polygon_config.stroke.fill[1] as i32,
-                            polygon_config.stroke.fill[2] as i32,
-                            polygon_config.stroke.fill[3] as i32,
-                        ],
-                    },
-                    layer: polygon_config.layer.clone(),
+
+        editor_state.add_saved_polygon(
+            sequence_id.clone(),
+            SavedPolygonConfig {
+                id: polygon_config.id.to_string().clone(),
+                name: polygon_config.name.clone(),
+                dimensions: (
+                    polygon_config.dimensions.0 as i32,
+                    polygon_config.dimensions.1 as i32,
+                ),
+                fill: [
+                    polygon_config.fill[0] as i32,
+                    polygon_config.fill[1] as i32,
+                    polygon_config.fill[2] as i32,
+                    polygon_config.fill[3] as i32,
+                ],
+                border_radius: polygon_config.border_radius as i32,
+                position: SavedPoint {
+                    x: polygon_config.position.x as i32,
+                    y: polygon_config.position.y as i32,
                 },
-            );
-        
+                stroke: SavedStroke {
+                    thickness: polygon_config.stroke.thickness as i32,
+                    fill: [
+                        polygon_config.stroke.fill[0] as i32,
+                        polygon_config.stroke.fill[1] as i32,
+                        polygon_config.stroke.fill[2] as i32,
+                        polygon_config.stroke.fill[3] as i32,
+                    ],
+                },
+                layer: polygon_config.layer.clone(),
+            },
+        );
+
         let saved_state = editor_state
             .record_state
             .saved_state
             .as_ref()
             .expect("Couldn't get saved state");
-        
+
         let updated_sequence = saved_state
             .sequences
             .iter()
             .find(|s| s.id == sequence_id.clone())
             .expect("Couldn't get updated sequence");
-        
+
         let sequence_cloned = updated_sequence.clone();
-        
+
         sequences.set(saved_state.sequences.clone());
 
         drop(editor_state);
-        
+
         let mut editor = editor_m.lock().unwrap();
-        
-        editor.current_sequence_data = Some(
-            sequence_cloned.clone(),
-        );
-        
+
+        editor.current_sequence_data = Some(sequence_cloned.clone());
+
         editor.update_motion_paths(&sequence_cloned);
-        
+
         drop(editor);
 
         info!("Square added!");
     };
 
     let on_add_text = move |sequence_id: String| {
-        let renderer = renderer
-            .get()
-            .expect("Couldn't get renderer");
+        let renderer = renderer.get().expect("Couldn't get renderer");
         let (canvas_renderer, editor_state) = renderer.take();
         let canvas_renderer = canvas_renderer.lock().unwrap();
         let editor_m = canvas_renderer.editor.clone();
@@ -546,9 +579,7 @@ pub fn Project() -> impl IntoView {
 
     let on_add_image = move |sequence_id: String| {
         let auth_state = auth_state.get_untracked();
-        let renderer = renderer
-            .get()
-            .expect("Couldn't get renderer");
+        let renderer = renderer.get().expect("Couldn't get renderer");
         let (canvas_renderer, editor_state) = renderer.take();
 
         spawn_local({
@@ -564,13 +595,14 @@ pub fn Project() -> impl IntoView {
                     // Read the file data
                     let file_data = file.read().await;
 
-                    let save_response = save_image(auth_state.token, file_name, file_data.clone()).await;
+                    let save_response =
+                        save_image(auth_state.token, file_name, file_data.clone()).await;
 
                     if let Some(response) = save_response {
                         let url = response.url;
 
                         info!("File url: {:?}", url);
-                        
+
                         let canvas_renderer = canvas_renderer.lock().unwrap();
                         let editor_m = canvas_renderer.editor.clone();
 
@@ -618,10 +650,7 @@ pub fn Project() -> impl IntoView {
                                 name: image_config.name.clone(),
                                 // path: new_path.clone(),
                                 url: url.clone(),
-                                dimensions: (
-                                    image_config.dimensions.0,
-                                    image_config.dimensions.1,
-                                ),
+                                dimensions: (image_config.dimensions.0, image_config.dimensions.1),
                                 position: SavedPoint {
                                     x: position.x as i32,
                                     y: position.y as i32,
@@ -666,6 +695,10 @@ pub fn Project() -> impl IntoView {
     let on_add_video = move |sequence_id: String| {};
 
     let on_open_capture = move |sequence_id: String| {};
+
+    let on_items_updated = move || {};
+    let on_item_duplicated = move |object_id: Uuid, object_type: ObjectType| {};
+    let on_item_deleted = move |object_id: Uuid, object_type: ObjectType| {};
 
     let aside_width = 260.0;
     let quarters = (aside_width / 4.0) + (5.0 * 4.0);
@@ -763,11 +796,12 @@ pub fn Project() -> impl IntoView {
                     />
                 </div>
                 <div class="flex flex-row">
-                    <div class="flex max-w-[315px] w-full max-h-[50vh] overflow-y-scroll overflow-x-hidden p-4 border-0 rounded-[15px] shadow-[0_0_15px_4px_rgba(0,0,0,0.16)]">
-                        {move || {
-                            match section.get() {
-                                Sections::SequenceList => {
-                                    view! {
+                    {move || {
+                        match section.get() {
+                            Sections::SequenceList => {
+                                view! {
+                                    <div class="flex max-w-[315px] w-full max-h-[50vh] overflow-y-scroll overflow-x-hidden p-4 border-0 rounded-[15px] shadow-[0_0_15px_4px_rgba(0,0,0,0.16)]">
+
                                         <div class="flex flex-col w-full">
                                             <div class="flex flex-row justify-between align-center w-full">
                                                 <h5>"Sequences"</h5>
@@ -813,225 +847,238 @@ pub fn Project() -> impl IntoView {
                                                 />
                                             </div>
                                         </div>
-                                    }
-                                        .into_any()
+                                    </div>
                                 }
-                                Sections::SequenceView(sequence_id) => {
-                                    view! {
-                                        <div class="flex flex-col w-full gap-4 mb-4">
-                                            <div class="flex flex-row items-center">
-                                                <button
-                                                    class="flex flex-col justify-center items-center text-xs w-[35px] h-[35px] text-center rounded 
-                                                    hover:bg-gray-200 hover:cursor-pointer active:bg-[#edda4] transition-colors mr-2"
-                                                    disabled=loading
-                                                    on:click=move |_| {
-                                                        set_section.set(Sections::SequenceList);
-                                                    }
-                                                >
-                                                    <CreateIcon
-                                                        icon="arrow-left".to_string()
-                                                        size="24px".to_string()
+                                    .into_any()
+                            }
+                            Sections::SequenceView(sequence_id) => {
+                                view! {
+                                    <div class="flex flex-col gap-4">
+                                        <div class="flex max-w-[315px] w-full max-h-[50vh] overflow-y-scroll overflow-x-hidden p-4 border-0 rounded-[15px] shadow-[0_0_15px_4px_rgba(0,0,0,0.16)]">
+                                            <div class="flex flex-col w-full gap-4 mb-4">
+                                                <div class="flex flex-row items-center">
+                                                    <button
+                                                        class="flex flex-col justify-center items-center text-xs w-[35px] h-[35px] text-center rounded
+                                                        hover:bg-gray-200 hover:cursor-pointer active:bg-[#edda4] transition-colors mr-2"
+                                                        disabled=loading
+                                                        on:click=move |_| {
+                                                            set_section.set(Sections::SequenceList);
+                                                        }
+                                                    >
+                                                        <CreateIcon
+                                                            icon="arrow-left".to_string()
+                                                            size="24px".to_string()
+                                                        />
+                                                    </button>
+                                                    <h5>"Update Sequence"</h5>
+                                                </div>
+                                                <div class="flex flex-row gap-2">
+                                                    <label for="keyframe_count" class="text-xs">
+                                                        "Choose keyframe count"
+                                                    </label>
+                                                    <select
+                                                        id="keyframe_count"
+                                                        name="keyframe_count"
+                                                        class="text-xs"
+                                                        on:change=move |ev| {
+                                                            set_keyframe_count.set(event_target_value(&ev));
+                                                        }
+                                                        prop:value=keyframe_count
+                                                    >
+                                                        <option value="4">"4"</option>
+                                                        <option value="6">"6"</option>
+                                                    </select>
+                                                    <input
+                                                        type="checkbox"
+                                                        id="is_curved"
+                                                        name="is_curved"
+                                                        // checked=false
+                                                        on:change=move |ev| {
+                                                            set_is_curved.set(event_target_checked(&ev));
+                                                        }
+                                                        prop:checked=is_curved
                                                     />
-                                                </button>
-                                                <h5>"Update Sequence"</h5>
-                                            </div>
-                                            <div class="flex flex-row gap-2">
-                                                <label for="keyframe_count" class="text-xs">
-                                                    "Choose keyframe count"
-                                                </label>
-                                                <select
-                                                    id="keyframe_count"
-                                                    name="keyframe_count"
-                                                    class="text-xs"
-                                                    on:change=move |ev| {
-                                                        set_keyframe_count.set(event_target_value(&ev));
-                                                    }
-                                                    prop:value=keyframe_count
+                                                    <label for="is_curved" class="text-xs">
+                                                        "Is Curved"
+                                                    </label>
+                                                </div>
+                                                <div class="flex flex-row gap-2">
+                                                    <input
+                                                        type="checkbox"
+                                                        id="auto_choreograph"
+                                                        name="auto_choreograph"
+                                                        // checked=true
+                                                        on:change=move |ev| {
+                                                            set_auto_choreograph.set(event_target_checked(&ev));
+                                                        }
+                                                        prop:checked=auto_choreograph
+                                                    />
+                                                    <label for="auto_choreograph" class="text-xs">
+                                                        "Auto-Choreograph"
+                                                    </label>
+                                                    <input
+                                                        type="checkbox"
+                                                        id="auto_fade"
+                                                        name="auto_fade"
+                                                        // checked=true
+                                                        on:change=move |ev| {
+                                                            set_auto_fade.set(event_target_checked(&ev));
+                                                        }
+                                                        prop:checked=auto_fade
+                                                    />
+                                                    <label for="auto_fade" class="text-xs">
+                                                        "Auto-Fade"
+                                                    </label>
+                                                </div>
+                                                <button
+                                                    type="submit"
+                                                    class="group relative w-full flex justify-center py-2 px-4 border border-transparent
+                                                    text-sm font-medium rounded-md text-white stunts-gradient 
+                                                    focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500
+                                                    disabled:opacity-50 disabled:cursor-not-allowed"
+                                                    disabled=loading
                                                 >
-                                                    <option value="4">"4"</option>
-                                                    <option value="6">"6"</option>
-                                                </select>
-                                                <input
-                                                    type="checkbox"
-                                                    id="is_curved"
-                                                    name="is_curved"
-                                                    // checked=false
-                                                    on:change=move |ev| {
-                                                        set_is_curved.set(event_target_checked(&ev));
-                                                    }
-                                                    prop:checked=is_curved
-                                                />
-                                                <label for="is_curved" class="text-xs">
-                                                    "Is Curved"
-                                                </label>
-                                            </div>
-                                            <div class="flex flex-row gap-2">
-                                                <input
-                                                    type="checkbox"
-                                                    id="auto_choreograph"
-                                                    name="auto_choreograph"
-                                                    // checked=true
-                                                    on:change=move |ev| {
-                                                        set_auto_choreograph.set(event_target_checked(&ev));
-                                                    }
-                                                    prop:checked=auto_choreograph
-                                                />
-                                                <label for="auto_choreograph" class="text-xs">
-                                                    "Auto-Choreograph"
-                                                </label>
-                                                <input
-                                                    type="checkbox"
-                                                    id="auto_fade"
-                                                    name="auto_fade"
-                                                    // checked=true
-                                                    on:change=move |ev| {
-                                                        set_auto_fade.set(event_target_checked(&ev));
-                                                    }
-                                                    prop:checked=auto_fade
-                                                />
-                                                <label for="auto_fade" class="text-xs">
-                                                    "Auto-Fade"
-                                                </label>
-                                            </div>
-                                            <button
-                                                type="submit"
-                                                class="group relative w-full flex justify-center py-2 px-4 border border-transparent
-                                                text-sm font-medium rounded-md text-white stunts-gradient 
-                                                focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500
-                                                disabled:opacity-50 disabled:cursor-not-allowed"
-                                                disabled=loading
-                                            >
-                                                {move || {
-                                                    if loading.get() {
-                                                        "Generating..."
-                                                    } else {
-                                                        "Generate Animation"
-                                                    }
-                                                }}
-                                            </button>
-                                            <div class="flex flex-row flex-wrap gap-2">
-                                                <OptionButton
-                                                    style="".to_string()
-                                                    label="Add Square".to_string()
-                                                    icon="square".to_string()
-                                                    callback=Box::new({
-                                                        let sequence_id = sequence_id.clone();
-                                                        move || {
-                                                            on_add_square(sequence_id.clone());
+                                                    {move || {
+                                                        if loading.get() {
+                                                            "Generating..."
+                                                        } else {
+                                                            "Generate Animation"
                                                         }
-                                                    })
-                                                />
-                                                <OptionButton
-                                                    style="".to_string()
-                                                    label="Add Image".to_string()
-                                                    icon="image".to_string()
-                                                    callback=Box::new({
-                                                        let sequence_id = sequence_id.clone();
-                                                        move || {
-                                                            on_add_image(sequence_id.clone());
-                                                        }
-                                                    })
-                                                />
-                                                <OptionButton
-                                                    style="".to_string()
-                                                    label="Add Text".to_string()
-                                                    icon="text".to_string()
-                                                    callback=Box::new({
-                                                        let sequence_id = sequence_id.clone();
-                                                        move || {
-                                                            on_add_text(sequence_id.clone());
-                                                        }
-                                                    })
-                                                />
-                                                <OptionButton
-                                                    style="".to_string()
-                                                    label="Add Video".to_string()
-                                                    icon="video".to_string()
-                                                    callback=Box::new({
-                                                        let sequence_id = sequence_id.clone();
-                                                        move || {
-                                                            on_add_video(sequence_id.clone());
-                                                        }
-                                                    })
-                                                />
-                                                <OptionButton
-                                                    style="".to_string()
-                                                    label="Screen Capture".to_string()
-                                                    icon="video".to_string()
-                                                    callback=Box::new({
-                                                        let sequence_id = sequence_id.clone();
-                                                        move || {
-                                                            on_open_capture(sequence_id.clone());
-                                                        }
-                                                    })
-                                                />
-                                            </div>
-                                            <div class="flex flex-row flex-wrap gap-2">
-                                                {themes
-                                                    .into_iter()
-                                                    .map(|theme: [f64; 5]| {
-                                                        let background_color_row = theme[0].trunc() as usize;
-                                                        let background_color_column = (theme[0].fract() * 10.0)
-                                                            as usize;
-                                                        let background_color = colors[background_color_row][background_color_column];
-                                                        let background_color: Rgb<Rgb, u8> = Rgb::from_str(
-                                                                &background_color,
-                                                            )
-                                                            .expect("Couldn't get background color");
-                                                        let text_color_row = theme[4].trunc() as usize;
-                                                        let text_color_column = (theme[4].fract() * 10.0) as usize;
-                                                        let text_color = colors[text_color_row][text_color_column];
-                                                        let text_color: Rgb<Rgb, u8> = Rgb::from_str(&text_color)
-                                                            .expect("Couldn't get text color");
-                                                        let font_index = theme[2];
-
-                                                        view! {
-                                                            <OptionButton
-                                                                style=format!(
-                                                                    "color: rgb({},{},{}); background-color: rgb({},{},{})",
-                                                                    text_color.red,
-                                                                    text_color.green,
-                                                                    text_color.blue,
-                                                                    background_color.red,
-                                                                    background_color.green,
-                                                                    background_color.blue,
+                                                    }}
+                                                </button>
+                                                <div class="flex flex-row flex-wrap gap-2">
+                                                    <OptionButton
+                                                        style="".to_string()
+                                                        label="Add Square".to_string()
+                                                        icon="square".to_string()
+                                                        callback=Box::new({
+                                                            let sequence_id = sequence_id.clone();
+                                                            move || {
+                                                                on_add_square(sequence_id.clone());
+                                                            }
+                                                        })
+                                                    />
+                                                    <OptionButton
+                                                        style="".to_string()
+                                                        label="Add Image".to_string()
+                                                        icon="image".to_string()
+                                                        callback=Box::new({
+                                                            let sequence_id = sequence_id.clone();
+                                                            move || {
+                                                                on_add_image(sequence_id.clone());
+                                                            }
+                                                        })
+                                                    />
+                                                    <OptionButton
+                                                        style="".to_string()
+                                                        label="Add Text".to_string()
+                                                        icon="text".to_string()
+                                                        callback=Box::new({
+                                                            let sequence_id = sequence_id.clone();
+                                                            move || {
+                                                                on_add_text(sequence_id.clone());
+                                                            }
+                                                        })
+                                                    />
+                                                    <OptionButton
+                                                        style="".to_string()
+                                                        label="Add Video".to_string()
+                                                        icon="video".to_string()
+                                                        callback=Box::new({
+                                                            let sequence_id = sequence_id.clone();
+                                                            move || {
+                                                                on_add_video(sequence_id.clone());
+                                                            }
+                                                        })
+                                                    />
+                                                    <OptionButton
+                                                        style="".to_string()
+                                                        label="Screen Capture".to_string()
+                                                        icon="video".to_string()
+                                                        callback=Box::new({
+                                                            let sequence_id = sequence_id.clone();
+                                                            move || {
+                                                                on_open_capture(sequence_id.clone());
+                                                            }
+                                                        })
+                                                    />
+                                                </div>
+                                                <div class="flex flex-row flex-wrap gap-2">
+                                                    {themes
+                                                        .into_iter()
+                                                        .map(|theme: [f64; 5]| {
+                                                            let background_color_row = theme[0].trunc() as usize;
+                                                            let background_color_column = (theme[0].fract() * 10.0)
+                                                                as usize;
+                                                            let background_color = colors[background_color_row][background_color_column];
+                                                            let background_color: Rgb<Rgb, u8> = Rgb::from_str(
+                                                                    &background_color,
                                                                 )
-                                                                label="Apply Theme".to_string()
-                                                                icon="brush".to_string()
-                                                                callback=Box::new(move || {
-                                                                    println!("Apply Theme...");
-                                                                })
-                                                            />
-                                                        }
-                                                    })
-                                                    .collect_view()}
-                                            </div>
-                                            <label class="text-sm">"Background Color"</label>
-                                            <div class="flex flex-row gap-2">
-                                                <DebouncedInput
-                                                    id="background_red".to_string()
-                                                    label="Red".to_string()
-                                                    placeholder="Red".to_string()
-                                                />
-                                                <DebouncedInput
-                                                    id="background_green".to_string()
-                                                    label="Green".to_string()
-                                                    placeholder="Green".to_string()
-                                                />
-                                                <DebouncedInput
-                                                    id="background_blue".to_string()
-                                                    label="Blue".to_string()
-                                                    placeholder="Blue".to_string()
-                                                />
+                                                                .expect("Couldn't get background color");
+                                                            let text_color_row = theme[4].trunc() as usize;
+                                                            let text_color_column = (theme[4].fract() * 10.0) as usize;
+                                                            let text_color = colors[text_color_row][text_color_column];
+                                                            let text_color: Rgb<Rgb, u8> = Rgb::from_str(&text_color)
+                                                                .expect("Couldn't get text color");
+                                                            let font_index = theme[2];
+
+                                                            view! {
+                                                                <OptionButton
+                                                                    style=format!(
+                                                                        "color: rgb({},{},{}); background-color: rgb({},{},{})",
+                                                                        text_color.red,
+                                                                        text_color.green,
+                                                                        text_color.blue,
+                                                                        background_color.red,
+                                                                        background_color.green,
+                                                                        background_color.blue,
+                                                                    )
+                                                                    label="Apply Theme".to_string()
+                                                                    icon="brush".to_string()
+                                                                    callback=Box::new(move || {
+                                                                        println!("Apply Theme...");
+                                                                    })
+                                                                />
+                                                            }
+                                                        })
+                                                        .collect_view()}
+                                                </div>
+                                                <label class="text-sm">"Background Color"</label>
+                                                <div class="flex flex-row gap-2">
+                                                    <DebouncedInput
+                                                        id="background_red".to_string()
+                                                        label="Red".to_string()
+                                                        placeholder="Red".to_string()
+                                                    />
+                                                    <DebouncedInput
+                                                        id="background_green".to_string()
+                                                        label="Green".to_string()
+                                                        placeholder="Green".to_string()
+                                                    />
+                                                    <DebouncedInput
+                                                        id="background_blue".to_string()
+                                                        label="Blue".to_string()
+                                                        placeholder="Blue".to_string()
+                                                    />
+                                                </div>
                                             </div>
                                         </div>
-                                    }
-                                        .into_any()
+                                        <div class="flex max-w-[315px] w-full max-h-[50vh] overflow-y-scroll overflow-x-hidden p-4 border-0 rounded-[15px] shadow-[0_0_15px_4px_rgba(0,0,0,0.16)]">
+                                            <LayerPanel
+                                                // renderer
+                                                layers
+                                                dragger_id
+                                                on_items_updated
+                                                on_item_duplicated
+                                                on_item_deleted
+                                            />
+                                        </div>
+                                    </div>
                                 }
+                                    .into_any()
                             }
-                        }}
-                    </div>
-                    <div>
+                        }
+                    }} <div>
                         <canvas id="scene-canvas" class="w-[900px] h-[450px] border border-black" />
                     </div>
                 </div>
